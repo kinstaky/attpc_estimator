@@ -32,6 +32,37 @@ class TraceLabelService:
     def previous_trace(self) -> dict[str, Any]:
         return self._serialize_trace_payload(self.source.previous_trace())
 
+    def set_trace_mode(
+        self,
+        mode: str,
+        family: str | None = None,
+        label: str | None = None,
+    ) -> dict[str, Any]:
+        if mode == "label":
+            self.source.set_trace_mode("label")
+            return {"mode": "label", "reviewFilter": None}
+        if mode != "review":
+            raise ValueError("trace mode must be 'label' or 'review'")
+        if family not in {"normal", "strange"}:
+            raise ValueError("review family must be 'normal' or 'strange'")
+        if family == "normal" and label is not None:
+            if label not in {str(bucket) for bucket in NORMAL_BUCKETS}:
+                raise ValueError("normal review label must be one of 0-9")
+        if family == "strange" and label is not None:
+            if not self.repository.has_strange_label_name(label):
+                raise ValueError("selected strange label does not exist")
+
+        match_count = self.source.set_trace_mode("review", family=family, label=label)
+        if match_count == 0:
+            raise LookupError("no traces match the selected review filter")
+        return {
+            "mode": "review",
+            "reviewFilter": {
+                "family": family,
+                "label": label,
+            },
+        }
+
     def save_label(
         self,
         event_id: int,
@@ -108,6 +139,7 @@ class TraceLabelService:
             "traceId": record.trace_id,
             "trace": record.trace.tolist(),
             "currentLabel": self._serialize_label(label),
+            "reviewProgress": self.source.get_review_progress(),
         }
 
     @staticmethod

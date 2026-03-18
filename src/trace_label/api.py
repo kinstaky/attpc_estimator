@@ -17,6 +17,12 @@ class CreateStrangeLabelRequest(BaseModel):
     shortcutKey: str
 
 
+class TraceModeRequest(BaseModel):
+    mode: str
+    family: str | None = None
+    label: str | None = None
+
+
 def build_api_router(service: TraceLabelService) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -53,6 +59,19 @@ def build_api_router(service: TraceLabelService) -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/trace/mode")
+    def set_trace_mode(request: TraceModeRequest) -> dict:
+        try:
+            return service.set_trace_mode(
+                mode=request.mode,
+                family=request.family,
+                label=request.label,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/label/strange")
     def get_strange_labels() -> dict:

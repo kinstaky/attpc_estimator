@@ -21,15 +21,26 @@
         v-if="state.bootstrap && state.page === 'welcome'"
         :bootstrap="state.bootstrap"
         @start="startLabeling"
-        @open-dialog="openDialog"
+        @open-add-dialog="openAddLabelDialog"
+        @open-review-dialog="openReviewDialog"
       />
 
       <LabelView
         v-else-if="state.currentTrace && state.page === 'label'"
         :trace="state.currentTrace"
         :mode="state.mode"
+        :session-mode="state.sessionMode"
+        :review-filter="state.reviewFilter"
         :current-label-text="currentLabelText()"
       />
+
+      <section v-else-if="state.page === 'label'" class="welcome-panel">
+        <p class="eyebrow">Trace Manual</p>
+        <h1>Loading trace…</h1>
+        <p class="welcome-copy">
+          Switching mode and fetching the next trace.
+        </p>
+      </section>
 
       <section v-else class="welcome-panel">
         <p class="eyebrow">Trace Manual</p>
@@ -47,9 +58,17 @@
     />
 
     <AddLabelDialog
-      v-if="state.dialogOpen"
+      v-if="state.addLabelDialogOpen"
       :save-label="onSaveLabel"
-      @close="closeDialog"
+      @close="closeAddLabelDialog"
+    />
+
+    <ReviewModeDialog
+      v-if="state.reviewDialogOpen"
+      :normal-summary="state.bootstrap?.normalSummary || []"
+      :strange-labels="state.bootstrap?.strangeLabels || []"
+      :start-review="onStartReview"
+      @close="closeReviewDialog"
     />
   </div>
 </template>
@@ -57,6 +76,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted } from "vue";
 import AddLabelDialog from "./components/AddLabelDialog.vue";
+import ReviewModeDialog from "./components/ReviewModeDialog.vue";
 import SidebarSummary from "./components/SidebarSummary.vue";
 import LabelView from "./views/LabelView.vue";
 import WelcomeView from "./views/WelcomeView.vue";
@@ -66,8 +86,11 @@ const {
   state,
   init,
   startLabeling,
-  openDialog,
-  closeDialog,
+  startReview,
+  openAddLabelDialog,
+  closeAddLabelDialog,
+  openReviewDialog,
+  closeReviewDialog,
   addStrangeLabel,
   handleKeydown,
   currentLabelText,
@@ -75,6 +98,10 @@ const {
 
 async function onSaveLabel(payload) {
   await addStrangeLabel(payload.name, payload.shortcutKey);
+}
+
+async function onStartReview(payload) {
+  await startReview(payload.family, payload.label);
 }
 
 onMounted(async () => {

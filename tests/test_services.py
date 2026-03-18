@@ -4,6 +4,7 @@ import random
 
 import h5py
 import numpy as np
+import pytest
 
 from trace_label.services import TraceLabelService
 
@@ -41,108 +42,96 @@ def write_hdf5_input(path) -> None:
         )
 
 
-def test_bootstrap_and_normal_label_flow(tmp_path) -> None:
-    random.seed(1)
+def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
     input_path = tmp_path / "run_0001.h5"
     db_dir = tmp_path / "db"
     write_hdf5_input(input_path)
 
     service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service.create_strange_label("Noise", "n")
+    service.save_label(event_id=1, trace_id=0, family="normal", label="0")
+    service.save_label(event_id=1, trace_id=1, family="strange", label="Noise")
+    service.save_label(event_id=2, trace_id=0, family="normal", label="4")
 
-    bootstrap = service.bootstrap_state()
-    assert bootstrap["totalTraces"] == 3
-    assert bootstrap["labeledCount"] == 0
+    payload = service.set_trace_mode(mode="review", family="normal")
+    assert payload == {
+        "mode": "review",
+        "reviewFilter": {"family": "normal", "label": None},
+    }
 
-    trace = service.next_trace()
-    assert trace["traceKey"]["run"] == "0001"
-    assert len(trace["hardwareId"]) == 5
-    assert trace["currentLabel"] is None
+    first = service.next_trace()
+    assert (first["eventId"], first["traceId"]) == (1, 0)
+    assert first["currentLabel"] == {"family": "normal", "label": "0"}
+    assert first["reviewProgress"] == {"current": 1, "total": 2}
 
-    result = service.save_label(
-        run=trace["traceKey"]["run"],
-        event_id=trace["traceKey"]["eventId"],
-        trace_id=trace["traceKey"]["traceId"],
-        family="normal",
-        label="3",
-    )
-    assert result["labeledCount"] == 1
-    assert result["currentLabel"]["family"] == "normal"
-    assert result["currentLabel"]["label"] == "3"
+    second = service.next_trace()
+    assert (second["eventId"], second["traceId"]) == (2, 0)
+    assert second["currentLabel"] == {"family": "normal", "label": "4"}
+    assert second["reviewProgress"] == {"current": 2, "total": 2}
+
+    still_last = service.next_trace()
+    assert (still_last["eventId"], still_last["traceId"]) == (2, 0)
 
     previous = service.previous_trace()
-    assert previous["traceKey"] == trace["traceKey"]
-    assert previous["currentLabel"]["label"] == "3"
+    assert (previous["eventId"], previous["traceId"]) == (1, 0)
+
+    still_first = service.previous_trace()
+    assert (still_first["eventId"], still_first["traceId"]) == (1, 0)
+
+    service.set_trace_mode(mode="review", family="strange", label="Noise")
+    strange = service.next_trace()
+    assert (strange["eventId"], strange["traceId"]) == (1, 1)
+    assert strange["currentLabel"] == {"family": "strange", "label": "Noise"}
+    assert strange["reviewProgress"] == {"current": 1, "total": 1}
 
 
-def test_strange_label_flow_and_no_duplicate_random_trace(tmp_path) -> None:
-    random.seed(3)
+def test_label_and_review_stacks_are_independent(tmp_path) -> None:
+    random.seed(7)
     input_path = tmp_path / "run_0002.h5"
     db_dir = tmp_path / "db"
     write_hdf5_input(input_path)
 
     service = TraceLabelService(input_path=input_path, db_dir=db_dir)
 
-    first_trace = service.next_trace()
-    first_key = first_trace["traceKey"]
+    first_label_trace = service.next_trace()
+    second_label_trace = service.next_trace()
+    rewound_label_trace = service.previous_trace()
+
+    assert (rewound_label_trace["eventId"], rewound_label_trace["traceId"]) == (
+        first_label_trace["eventId"],
+        first_label_trace["traceId"],
+    )
+
     service.save_label(
-        run=first_key["run"],
-        event_id=first_key["eventId"],
-        trace_id=first_key["traceId"],
+        event_id=first_label_trace["eventId"],
+        trace_id=first_label_trace["traceId"],
         family="normal",
-        label="1",
+        label="3",
     )
 
-    second_trace = service.next_trace()
-    assert second_trace["traceKey"] != first_key
+    review_mode = service.set_trace_mode(mode="review", family="normal", label="3")
+    assert review_mode["mode"] == "review"
 
-    create_result = service.create_strange_label("Noise", "n")
-    label_id = create_result["createdLabel"]["id"]
-    save_result = service.save_label(
-        run=second_trace["traceKey"]["run"],
-        event_id=second_trace["traceKey"]["eventId"],
-        trace_id=second_trace["traceKey"]["traceId"],
-        family="strange",
-        label=str(label_id),
+    review_trace = service.next_trace()
+    assert (review_trace["eventId"], review_trace["traceId"]) == (
+        first_label_trace["eventId"],
+        first_label_trace["traceId"],
     )
-    assert save_result["currentLabel"]["label"] == "Noise"
 
-    previous = service.previous_trace()
-    assert previous["traceKey"] == first_key
+    service.set_trace_mode(mode="label")
+    resumed_label_trace = service.next_trace()
+    assert (resumed_label_trace["eventId"], resumed_label_trace["traceId"]) == (
+        second_label_trace["eventId"],
+        second_label_trace["traceId"],
+    )
 
 
-def test_reserved_shortcuts_and_duplicate_labels_are_rejected(tmp_path) -> None:
-    random.seed(9)
+def test_review_mode_rejects_empty_selection(tmp_path) -> None:
     input_path = tmp_path / "run_0003.h5"
     db_dir = tmp_path / "db"
     write_hdf5_input(input_path)
+
     service = TraceLabelService(input_path=input_path, db_dir=db_dir)
 
-    try:
-        service.create_strange_label("Broken", "q")
-    except ValueError as exc:
-        assert "reserved" in str(exc)
-    else:
-        raise AssertionError("expected reserved shortcut to fail")
-
-    trace = service.next_trace()
-    trace_key = trace["traceKey"]
-    service.save_label(
-        run=trace_key["run"],
-        event_id=trace_key["eventId"],
-        trace_id=trace_key["traceId"],
-        family="normal",
-        label="2",
-    )
-
-    try:
-        service.save_label(
-            run=trace_key["run"],
-            event_id=trace_key["eventId"],
-            trace_id=trace_key["traceId"],
-            family="normal",
-            label="4",
-        )
-    except ValueError as exc:
-        assert "already labeled" in str(exc)
-    else:
-        raise AssertionError("expected duplicate label to fail")
+    with pytest.raises(LookupError, match="no traces match"):
+        service.set_trace_mode(mode="review", family="normal", label="1")

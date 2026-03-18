@@ -41,6 +41,13 @@ export function nextTrace() {
   });
 }
 
+export function setTraceMode(mode, family = null, label = null) {
+  return request("/api/trace/mode", {
+    method: "POST",
+    body: JSON.stringify({ mode, family, label }),
+  });
+}
+
 export function previousTrace() {
   return request("/api/trace/previous", {
     method: "POST",

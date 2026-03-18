@@ -17,7 +17,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -158,11 +159,11 @@ input {
 
 .progress-card,
 .trace-meta {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
 }
 
 .button-row {
-  grid-template-columns: repeat(2, minmax(0, 12rem));
+  grid-template-columns: repeat(auto-fit, minmax(0, 12rem));
 }
 
 .primary-button,
@@ -266,7 +267,8 @@ input {
   gap: 0.45rem;
 }
 
-.dialog-form input {
+.dialog-form input,
+.dialog-form select {
   padding: 0.8rem 0.9rem;
   border-radius: 12px;
   border: 1px solid rgba(45, 40, 26, 0.18);

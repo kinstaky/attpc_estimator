@@ -19,7 +19,8 @@
 
     <div class="button-row">
       <button class="primary-button" @click="$emit('start')">Start</button>
-      <button class="ghost-button" @click="$emit('open-dialog')">Add</button>
+      <button class="ghost-button" @click="$emit('open-review-dialog')">Review</button>
+      <button class="ghost-button" @click="$emit('open-add-dialog')">Add</button>
     </div>
 
     <dl class="meta-list">
@@ -40,5 +41,5 @@ defineProps({
   bootstrap: { type: Object, required: true },
 });
 
-defineEmits(["start", "open-dialog"]);
+defineEmits(["start", "open-add-dialog", "open-review-dialog"]);
 </script>

@@ -19,8 +19,16 @@
         <strong>{{ trace.eventId }} / {{ trace.traceId }}</strong>
       </div>
       <div class="meta-card">
-        <span class="meta-title">Mode</span>
+        <span class="meta-title">Input mode</span>
         <strong>{{ modeLabel }}</strong>
+      </div>
+      <div class="meta-card">
+        <span class="meta-title">Session</span>
+        <strong>{{ sessionLabel }}</strong>
+      </div>
+      <div class="meta-card" v-if="trace.reviewProgress">
+        <span class="meta-title">Review progress</span>
+        <strong>{{ trace.reviewProgress.current }} / {{ trace.reviewProgress.total }}</strong>
       </div>
     </div>
   </section>
@@ -34,6 +42,8 @@ const props = defineProps({
   trace: { type: Object, required: true },
   currentLabelText: { type: String, required: true },
   mode: { type: String, required: true },
+  sessionMode: { type: String, required: true },
+  reviewFilter: { type: Object, default: null },
 });
 
 const modeLabel = computed(() => {
@@ -44,5 +54,18 @@ const modeLabel = computed(() => {
     return "Waiting for strange label selection";
   }
   return "Browse";
+});
+
+const sessionLabel = computed(() => {
+  if (props.sessionMode !== "review") {
+    return "Label mode";
+  }
+  if (!props.reviewFilter?.label) {
+    return `Review ${props.reviewFilter?.family || ""} labels`.trim();
+  }
+  if (props.reviewFilter.family === "normal") {
+    return `Review ${props.reviewFilter.label === "9" ? "9+ peaks" : `${props.reviewFilter.label} peak${props.reviewFilter.label === "1" ? "" : "s"}`}`;
+  }
+  return `Review strange: ${props.reviewFilter.label}`;
 });
 </script>

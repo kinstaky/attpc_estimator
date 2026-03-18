@@ -7,6 +7,7 @@ import {
   nextTrace,
   previousTrace,
   saveLabel,
+  setTraceMode,
 } from "../api";
 
 const state = reactive({
@@ -14,11 +15,14 @@ const state = reactive({
   currentTrace: null,
   page: "welcome",
   mode: "welcome",
+  sessionMode: "label",
+  reviewFilter: null,
   activeSidebar: null,
   loading: false,
   error: "",
   statusMessage: "",
-  dialogOpen: false,
+  addLabelDialogOpen: false,
+  reviewDialogOpen: false,
 });
 
 function clearTransientUi() {
@@ -54,23 +58,60 @@ async function init() {
   }
 }
 
+async function switchSessionMode(mode, family = null, label = null) {
+  const payload = await setTraceMode(mode, family, label);
+  state.sessionMode = payload.mode;
+  state.reviewFilter = payload.reviewFilter;
+}
+
 async function loadNextTrace() {
-  clearTransientUi();
-  try {
-    state.currentTrace = await nextTrace();
-  } catch (error) {
-    state.statusMessage = error.message;
-  }
+  state.currentTrace = await nextTrace();
 }
 
 async function startLabeling() {
   if (!state.bootstrap) {
     return;
   }
-  state.page = "label";
-  setMode("label_browse");
-  if (!state.currentTrace) {
+  clearTransientUi();
+  const shouldReload = state.sessionMode !== "label" || !state.currentTrace;
+  if (shouldReload) {
+    state.currentTrace = null;
+    state.loading = true;
+  }
+  try {
+    await switchSessionMode("label");
+    state.page = "label";
+    setMode("label_browse");
+    if (shouldReload) {
+      await loadNextTrace();
+    }
+  } catch (error) {
+    state.error = error.message;
+  } finally {
+    if (shouldReload) {
+      state.loading = false;
+    }
+  }
+}
+
+async function startReview(family, label) {
+  if (!state.bootstrap) {
+    return;
+  }
+  clearTransientUi();
+  state.currentTrace = null;
+  state.loading = true;
+  try {
+    await switchSessionMode("review", family, label);
+    state.page = "label";
+    setMode("label_browse");
     await loadNextTrace();
+    closeReviewDialog();
+  } catch (error) {
+    state.error = error.message;
+    throw error;
+  } finally {
+    state.loading = false;
   }
 }
 
@@ -89,6 +130,16 @@ async function navigate(delta) {
   setMode("label_browse");
 }
 
+async function advanceAfterSave(successMessage) {
+  try {
+    await loadNextTrace();
+    state.statusMessage = successMessage;
+  } catch (error) {
+    state.statusMessage = `${successMessage} ${error.message}`;
+  }
+  setMode("label_browse");
+}
+
 async function submitNormal(peakCount) {
   if (!state.currentTrace) {
     return;
@@ -102,10 +153,8 @@ async function submitNormal(peakCount) {
       String(peakCount),
     );
     syncSummaries(payload);
-    state.statusMessage = `Saved ${peakCount === 9 ? "9+" : peakCount} peak label.`;
     state.currentTrace.currentLabel = payload.currentLabel;
-    await loadNextTrace();
-    setMode("label_browse");
+    await advanceAfterSave(`Saved ${peakCount === 9 ? "9+" : peakCount} peak label.`);
   } catch (error) {
     state.error = error.message;
   }
@@ -124,10 +173,8 @@ async function submitStrange(strangeLabelName) {
       strangeLabelName,
     );
     syncSummaries(payload);
-    state.statusMessage = "Saved strange label.";
     state.currentTrace.currentLabel = payload.currentLabel;
-    await loadNextTrace();
-    setMode("label_browse");
+    await advanceAfterSave("Saved strange label.");
   } catch (error) {
     state.error = error.message;
   }
@@ -148,7 +195,7 @@ async function addStrangeLabel(name, shortcutKey) {
       ];
     }
     state.statusMessage = `Added label "${payload.name}".`;
-    state.dialogOpen = false;
+    state.addLabelDialogOpen = false;
   } catch (error) {
     state.error = error.message;
     throw error;
@@ -172,13 +219,22 @@ async function removeStrangeLabel(name) {
   }
 }
 
-function openDialog() {
-  state.dialogOpen = true;
+function openAddLabelDialog() {
+  state.addLabelDialogOpen = true;
   clearTransientUi();
 }
 
-function closeDialog() {
-  state.dialogOpen = false;
+function closeAddLabelDialog() {
+  state.addLabelDialogOpen = false;
+}
+
+function openReviewDialog() {
+  state.reviewDialogOpen = true;
+  clearTransientUi();
+}
+
+function closeReviewDialog() {
+  state.reviewDialogOpen = false;
 }
 
 function syncSummaries(payload) {
@@ -201,7 +257,7 @@ function normalizeKey(event) {
 }
 
 function shouldIgnoreKey(event) {
-  if (state.dialogOpen) {
+  if (state.addLabelDialogOpen || state.reviewDialogOpen) {
     return true;
   }
   const tagName = event.target?.tagName?.toLowerCase();
@@ -219,6 +275,11 @@ async function handleKeydown(event) {
     if (key === "space") {
       event.preventDefault();
       await startLabeling();
+      return;
+    }
+    if (key === "r") {
+      event.preventDefault();
+      openReviewDialog();
     }
     return;
   }
@@ -307,6 +368,7 @@ export function useAppStore() {
     state,
     init,
     startLabeling,
+    startReview,
     goWelcome,
     setMode,
     navigate,
@@ -314,8 +376,10 @@ export function useAppStore() {
     submitStrange,
     addStrangeLabel,
     removeStrangeLabel,
-    openDialog,
-    closeDialog,
+    openAddLabelDialog,
+    closeAddLabelDialog,
+    openReviewDialog,
+    closeReviewDialog,
     handleKeydown,
     currentLabelText,
   };
