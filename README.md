@@ -38,11 +38,26 @@ Start the app from the repository root:
 uv run label -i <input-file> -d <sqlite-dir>
 ```
 
+Generate per-trace FFT CDF samples with:
+
+```bash
+uv run batch -i <input-file>
+```
+
 Arguments:
 
 - `-i`, `--input-file`: input HDF5 trace file
 - `-d`, `--database-dir`: directory where `trace_label.sqlite3` is stored
 - `--port`: optional preferred HTTP port, default `8765`
+
+Batch arguments:
+
+- `-i`, `--input-file`: input HDF5 trace file
+- `-o`, `--output-file`: optional output `.npy` file
+- `--baseline-window-scale`: optional FFT baseline-removal scale, default `20.0`
+
+The batch command writes a NumPy array with shape `(num_traces, 10)` containing:
+`F(10), F(20), F(30), F(40), F(50), F(60), F(100), F(150), F(200), F(250)`.
 
 The app prints the selected port when it starts. If needed, open `http://127.0.0.1:<port>` manually in your browser.
 

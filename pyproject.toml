@@ -7,21 +7,26 @@ name = "trace-label"
 version = "0.1.0"
 description = "Local trace labeling app with FastAPI, Vue, and Plotly"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1.0",
   "h5py>=3.16.0",
-  "numpy>=2.2.6",
+  "matplotlib>=3.10,<4.0",
+  "numba>=0.62,<1.0",
+  "numpy>=2.4.3",
+  "tqdm>=4.67,<5.0",
   "uvicorn>=0.30,<1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0,<9.0",
+  "pytest>=9.0.2",
 ]
 
 [project.scripts]
 label = "trace_label.__main__:main"
+batch = "trace_label.batch:main"
+plot-batch = "trace_label.plot_batch:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trace_label"]
