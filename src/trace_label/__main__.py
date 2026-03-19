@@ -16,7 +16,7 @@ from .services import TraceLabelService
 
 def main() -> None:
     args = _parse_args()
-    input_path = Path(args.input_file).expanduser().resolve()
+    input_path = (Path(args.workspace).expanduser().resolve() / f"run_{args.run}.h5").resolve()
     db_dir = Path(args.database_dir).expanduser().resolve()
 
     if not input_path.is_file():
@@ -36,7 +36,19 @@ def main() -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch the trace labeling app")
-    parser.add_argument("-i", "--input-file", required=True, help="Path to the trace input file")
+    parser.add_argument(
+        "-w",
+        "--workspace",
+        required=True,
+        help="Workspace directory containing run_<run>.h5 files",
+    )
+    parser.add_argument(
+        "-r",
+        "--run",
+        required=True,
+        type=_parse_run,
+        help="Run identifier used to reconstruct <workspace>/run_<run>.h5",
+    )
     parser.add_argument(
         "-d",
         "--database-dir",
@@ -45,6 +57,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--port", type=int, default=8765, help="Preferred local HTTP port")
     return parser.parse_args()
+
+
+def _parse_run(value: str) -> str:
+    run = value.strip()
+    if not run or not run.isdigit():
+        raise argparse.ArgumentTypeError("run must contain only digits")
+    return run
 
 
 def _pick_port(preferred_port: int) -> int:

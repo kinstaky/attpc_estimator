@@ -35,7 +35,7 @@ pnpm build
 Start the app from the repository root:
 
 ```bash
-uv run label -i <input-file> -d <sqlite-dir>
+uv run label -w <workspace> -r <run> -d <sqlite-dir>
 ```
 
 Generate per-trace FFT CDF samples with:
@@ -44,9 +44,10 @@ Generate per-trace FFT CDF samples with:
 uv run batch -i <input-file>
 ```
 
-Arguments:
+Label arguments:
 
-- `-i`, `--input-file`: input HDF5 trace file
+- `-w`, `--workspace`: directory containing `run_<run>.h5`
+- `-r`, `--run`: run identifier used to reconstruct `<workspace>/run_<run>.h5`
 - `-d`, `--database-dir`: directory where `trace_label.sqlite3` is stored
 - `--port`: optional preferred HTTP port, default `8765`
 

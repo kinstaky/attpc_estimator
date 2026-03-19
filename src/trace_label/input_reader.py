@@ -104,7 +104,7 @@ class TraceSource:
             family = None
             label = None
         hardware, raw_trace = self._extract_trace_parts(file_handle, event_id, trace_id)
-        trace = self.preprocess_traces(raw_trace, baseline_window_scale=20.0)
+        trace = self.preprocess_traces(raw_trace, baseline_window_scale=10.0)
         transformed = self.transform_trace(trace)
         return TraceRecord(
             run=self.run,

@@ -19,14 +19,6 @@
         </label>
 
         <label>
-          <span>Scope</span>
-          <select v-model="scope">
-            <option value="family">All labels in this family</option>
-            <option value="label">One specific label</option>
-          </select>
-        </label>
-
-        <label v-if="scope === 'label'">
           <span>Label</span>
           <select v-model="selectedLabel">
             <option v-for="option in labelOptions" :key="option.value" :value="option.value">
@@ -61,22 +53,27 @@ const props = defineProps({
 defineEmits(["close"]);
 
 const family = ref("normal");
-const scope = ref("family");
-const selectedLabel = ref("0");
+const selectedLabel = ref("__all__");
 const localError = ref("");
 const submitting = ref(false);
 
 const labelOptions = computed(() => {
   if (family.value === "normal") {
-    return props.normalSummary.map((item) => ({
-      value: String(item.bucket),
-      text: item.title,
-    }));
+    return [
+      { value: "__all__", text: "All labels" },
+      ...props.normalSummary.map((item) => ({
+        value: String(item.bucket),
+        text: item.title,
+      })),
+    ];
   }
-  return props.strangeLabels.map((item) => ({
-    value: item.name,
-    text: item.name,
-  }));
+  return [
+    { value: "__all__", text: "All labels" },
+    ...props.strangeLabels.map((item) => ({
+      value: item.name,
+      text: item.name,
+    })),
+  ];
 });
 
 watch(labelOptions, (options) => {
@@ -85,7 +82,7 @@ watch(labelOptions, (options) => {
 
 async function submit() {
   localError.value = "";
-  if (scope.value === "label" && !selectedLabel.value) {
+  if (!selectedLabel.value) {
     localError.value = "Select a label to review.";
     return;
   }
@@ -93,7 +90,7 @@ async function submit() {
   try {
     await props.startReview({
       family: family.value,
-      label: scope.value === "label" ? selectedLabel.value : null,
+      label: selectedLabel.value === "__all__" ? null : selectedLabel.value,
     });
   } catch (error) {
     localError.value = error.message;

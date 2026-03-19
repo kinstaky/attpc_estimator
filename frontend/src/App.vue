@@ -63,6 +63,8 @@
     <AddLabelDialog
       v-if="state.addLabelDialogOpen"
       :save-label="onSaveLabel"
+      :remove-label="onRemoveLabel"
+      :strange-labels="state.bootstrap?.strangeLabels || []"
       @close="closeAddLabelDialog"
     />
 
@@ -95,6 +97,7 @@ const {
   openReviewDialog,
   closeReviewDialog,
   addStrangeLabel,
+  removeStrangeLabel,
   handleKeydown,
   currentLabelText,
   setBrowseVisualMode,
@@ -102,6 +105,10 @@ const {
 
 async function onSaveLabel(payload) {
   await addStrangeLabel(payload.name, payload.shortcutKey);
+}
+
+async function onRemoveLabel(name) {
+  await removeStrangeLabel(name);
 }
 
 async function onStartReview(payload) {
