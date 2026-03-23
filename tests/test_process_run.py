@@ -6,7 +6,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from trace_label.batch import CDF_THRESHOLDS, CDF_VALUE_BINS, build_trace_cdf_histogram, main, preprocess_traces, sample_cdf_points
+from trace_label.batch.process_run import CDF_THRESHOLDS, CDF_VALUE_BINS, build_trace_cdf_histogram, main, preprocess_traces, sample_cdf_points
 from trace_label.input_reader import TraceSource
 
 
@@ -129,11 +129,11 @@ def test_build_trace_cdf_histogram_returns_expected_shape_and_count(tmp_path) ->
     assert int(histogram.sum()) == 3 * len(CDF_THRESHOLDS)
 
 
-def test_batch_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
+def test_process_run_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
     input_path = tmp_path / "run_0006.h5"
     write_hdf5_input(input_path)
 
-    monkeypatch.setattr(sys, "argv", ["batch", "-i", str(input_path)])
+    monkeypatch.setattr(sys, "argv", ["process-run", "-i", str(input_path)])
     main()
 
     output_path = tmp_path / "run_0006_cdf_hist2d.npy"
@@ -144,7 +144,7 @@ def test_batch_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
     assert int(saved.sum()) == 3 * len(CDF_THRESHOLDS)
 
 
-def test_batch_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
+def test_process_run_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
     input_path = tmp_path / "run_0006.h5"
     output_path = tmp_path / "from_config.npy"
     write_hdf5_input(input_path)
@@ -169,7 +169,7 @@ def test_batch_main_reads_options_from_config_file(tmp_path, monkeypatch) -> Non
     assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
 
 
-def test_batch_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
+def test_process_run_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
     input_path = tmp_path / "run_0006.h5"
     write_hdf5_input(input_path)
     config_output = tmp_path / "from_config.npy"

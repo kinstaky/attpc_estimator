@@ -27,12 +27,16 @@ dev = [
 
 [project.scripts]
 label = "trace_label.__main__:main"
-batch = "trace_label.batch:main"
-batch-labeled = "trace_label.batch_labeled:main"
-plot-batch = "trace_label.plot_batch:main"
+process-run = "trace_label.batch.process_run:main"
+process-labeled = "trace_label.batch.process_labeled:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trace_label"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

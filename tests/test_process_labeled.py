@@ -6,7 +6,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from trace_label.batch_labeled import build_labeled_cdf_histograms, main
+from trace_label.batch.process_labeled import build_labeled_cdf_histograms, main
 from trace_label.db import TraceLabelRepository
 
 
@@ -95,12 +95,12 @@ def test_build_labeled_cdf_histograms_filters_selected_run(tmp_path) -> None:
     assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
 
 
-def test_batch_labeled_main_writes_default_output_file_for_selected_run(tmp_path, monkeypatch) -> None:
+def test_process_labeled_main_writes_default_output_file_for_selected_run(tmp_path, monkeypatch) -> None:
     workspace = make_workspace(tmp_path)
     db_dir = tmp_path / "db"
     seed_labels(db_dir)
 
-    monkeypatch.setattr(sys, "argv", ["batch-labeled", "-w", str(workspace), "-r", "0008", "-d", str(db_dir)])
+    monkeypatch.setattr(sys, "argv", ["process-labeled", "-w", str(workspace), "-r", "0008", "-d", str(db_dir)])
     main()
 
     output_path = workspace / "run_0008_labeled_hist2d.npy"
@@ -111,12 +111,12 @@ def test_batch_labeled_main_writes_default_output_file_for_selected_run(tmp_path
     assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
 
 
-def test_batch_labeled_main_writes_default_output_file_for_all_runs(tmp_path, monkeypatch) -> None:
+def test_process_labeled_main_writes_default_output_file_for_all_runs(tmp_path, monkeypatch) -> None:
     workspace = make_workspace(tmp_path)
     db_dir = tmp_path / "db"
     seed_labels(db_dir)
 
-    monkeypatch.setattr(sys, "argv", ["batch-labeled", "-w", str(workspace), "-d", str(db_dir)])
+    monkeypatch.setattr(sys, "argv", ["process-labeled", "-w", str(workspace), "-d", str(db_dir)])
     main()
 
     output_path = workspace / "all_runs_labeled_hist2d.npy"
@@ -127,16 +127,16 @@ def test_batch_labeled_main_writes_default_output_file_for_all_runs(tmp_path, mo
     assert payload["trace_counts"].tolist() == [1, 0, 1, 0, 1, 0, 1]
 
 
-def test_batch_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
+def test_process_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
     workspace = make_workspace(tmp_path)
     db_dir = tmp_path / "db"
     seed_labels(db_dir)
     output_path = workspace / "from_config.npy"
-    config_path = tmp_path / "batch_labeled.toml"
+    config_path = tmp_path / "process_labeled.toml"
     config_path.write_text(
         "\n".join(
             [
-                "[batch_labeled]",
+                "[process_labeled]",
                 f'workspace = "{workspace}"',
                 'run = "0008"',
                 f'database_dir = "{db_dir}"',
@@ -147,7 +147,7 @@ def test_batch_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(sys, "argv", ["batch-labeled", "-c", str(config_path)])
+    monkeypatch.setattr(sys, "argv", ["process_labeled", "-c", str(config_path)])
     main()
 
     payload = np.load(output_path, allow_pickle=True).item()
@@ -155,17 +155,17 @@ def test_batch_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch
     assert payload["run_ids"].tolist() == [8]
 
 
-def test_batch_labeled_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
+def test_process_labeled_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
     workspace = make_workspace(tmp_path)
     db_dir = tmp_path / "db"
     seed_labels(db_dir)
     config_output = workspace / "from_config.npy"
     cli_output = workspace / "from_cli.npy"
-    config_path = tmp_path / "batch_labeled.toml"
+    config_path = tmp_path / "process_labeled.toml"
     config_path.write_text(
         "\n".join(
             [
-                "[batch_labeled]",
+                "[process_labeled]",
                 f'workspace = "{workspace}"',
                 'run = "0008"',
                 f'database_dir = "{db_dir}"',
@@ -179,7 +179,7 @@ def test_batch_labeled_main_cli_arguments_override_config_file(tmp_path, monkeyp
     monkeypatch.setattr(
         sys,
         "argv",
-        ["batch-labeled", "-c", str(config_path), "-o", str(cli_output), "-d", str(db_dir)],
+        ["process-labeled", "-c", str(config_path), "-o", str(cli_output), "-d", str(db_dir)],
     )
     main()
 
