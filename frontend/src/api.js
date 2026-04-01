@@ -73,3 +73,34 @@ export function deleteStrangeLabel(name) {
     method: "DELETE",
   });
 }
+
+export function getHistogram(metric, mode, run, filterFile = "") {
+  const params = new URLSearchParams({
+    metric,
+    mode,
+    run: String(run),
+  });
+  if (filterFile) {
+    params.set("filterFile", filterFile);
+  }
+  return request(`/api/histogram?${params.toString()}`);
+}
+
+export function selectReviewFilter(name) {
+  return request("/api/review/filter", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function nextReviewTrace() {
+  return request("/api/review/next", {
+    method: "POST",
+  });
+}
+
+export function previousReviewTrace() {
+  return request("/api/review/previous", {
+    method: "POST",
+  });
+}

@@ -6,8 +6,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from trace_label.batch.process_labeled import build_labeled_cdf_histograms, main
-from trace_label.db import TraceLabelRepository
+from attpc_estimator.db import TraceLabelRepository
+from attpc_estimator.viewer.cdf import build_labeled_cdf_histograms, main
 
 
 def write_hdf5_input(path: Path, traces: np.ndarray) -> None:
@@ -26,8 +26,8 @@ def write_hdf5_input(path: Path, traces: np.ndarray) -> None:
         get_2.create_dataset("pads", data=traces[2:])
 
 
-def seed_labels(db_dir: Path) -> None:
-    repository = TraceLabelRepository(db_dir / "trace_label.sqlite3")
+def seed_labels(workspace: Path) -> None:
+    repository = TraceLabelRepository(workspace / "trace_label.db")
     repository.initialize()
     repository.create_strange_label("Noise", "n")
     repository.create_strange_label("Burst", "b")
@@ -38,9 +38,11 @@ def seed_labels(db_dir: Path) -> None:
     repository.connection.close()
 
 
-def make_workspace(tmp_path: Path) -> Path:
+def make_workspace(tmp_path: Path) -> tuple[Path, Path]:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
     traces_run8 = np.array(
         [
             [10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -57,131 +59,72 @@ def make_workspace(tmp_path: Path) -> Path:
         ],
         dtype=np.float32,
     )
-    write_hdf5_input(workspace / "run_0008.h5", traces_run8)
-    write_hdf5_input(workspace / "run_0009.h5", traces_run9)
-    return workspace
+    write_hdf5_input(trace_root / "run_0008.h5", traces_run8)
+    write_hdf5_input(trace_root / "run_0009.h5", traces_run9)
+    return workspace, trace_root
 
 
-def test_build_labeled_cdf_histograms_aggregates_all_workspace_runs(tmp_path) -> None:
-    workspace = make_workspace(tmp_path)
-    db_dir = tmp_path / "db"
-    seed_labels(db_dir)
+def test_build_labeled_cdf_histograms_filters_selected_run(tmp_path) -> None:
+    workspace, trace_root = make_workspace(tmp_path)
+    seed_labels(workspace)
 
-    payload = build_labeled_cdf_histograms(workspace=workspace, db_dir=db_dir)
+    payload = build_labeled_cdf_histograms(
+        trace_path=trace_root, workspace=workspace, run=8
+    )
 
-    assert payload["run_ids"].tolist() == [8, 9]
+    assert payload["run_id"] == 8
     assert payload["label_titles"].tolist() == [
         "0 peak",
         "1 peak",
-        "2 peak",
-        "3 peak",
+        "2 peaks",
+        "3 peaks",
         "4+ peaks",
         "Burst",
         "Noise",
     ]
-    assert payload["histograms"].shape == (7, 150, 100)
-    assert payload["trace_counts"].tolist() == [1, 0, 1, 0, 1, 0, 1]
-    assert payload["histograms"].sum(axis=(1, 2)).tolist() == [150, 0, 150, 0, 150, 0, 150]
-
-
-def test_build_labeled_cdf_histograms_filters_selected_run(tmp_path) -> None:
-    workspace = make_workspace(tmp_path)
-    db_dir = tmp_path / "db"
-    seed_labels(db_dir)
-
-    payload = build_labeled_cdf_histograms(workspace=workspace, db_dir=db_dir, run=8)
-
-    assert payload["run_ids"].tolist() == [8]
     assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
 
 
-def test_process_labeled_main_writes_default_output_file_for_selected_run(tmp_path, monkeypatch) -> None:
-    workspace = make_workspace(tmp_path)
-    db_dir = tmp_path / "db"
-    seed_labels(db_dir)
-
-    monkeypatch.setattr(sys, "argv", ["process-labeled", "-w", str(workspace), "-r", "0008", "-d", str(db_dir)])
-    main()
-
-    output_path = workspace / "run_0008_labeled_hist2d.npy"
-    payload = np.load(output_path, allow_pickle=True).item()
-
-    assert output_path.is_file()
-    assert payload["run_ids"].tolist() == [8]
-    assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
-
-
-def test_process_labeled_main_writes_default_output_file_for_all_runs(tmp_path, monkeypatch) -> None:
-    workspace = make_workspace(tmp_path)
-    db_dir = tmp_path / "db"
-    seed_labels(db_dir)
-
-    monkeypatch.setattr(sys, "argv", ["process-labeled", "-w", str(workspace), "-d", str(db_dir)])
-    main()
-
-    output_path = workspace / "all_runs_labeled_hist2d.npy"
-    payload = np.load(output_path, allow_pickle=True).item()
-
-    assert output_path.is_file()
-    assert payload["run_ids"].tolist() == [8, 9]
-    assert payload["trace_counts"].tolist() == [1, 0, 1, 0, 1, 0, 1]
-
-
-def test_process_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
-    workspace = make_workspace(tmp_path)
-    db_dir = tmp_path / "db"
-    seed_labels(db_dir)
-    output_path = workspace / "from_config.npy"
-    config_path = tmp_path / "process_labeled.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[process_labeled]",
-                f'workspace = "{workspace}"',
-                'run = "0008"',
-                f'database_dir = "{db_dir}"',
-                f'output_file = "{output_path}"',
-                "baseline_window_scale = 12.5",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(sys, "argv", ["process_labeled", "-c", str(config_path)])
-    main()
-
-    payload = np.load(output_path, allow_pickle=True).item()
-    assert output_path.is_file()
-    assert payload["run_ids"].tolist() == [8]
-
-
-def test_process_labeled_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
-    workspace = make_workspace(tmp_path)
-    db_dir = tmp_path / "db"
-    seed_labels(db_dir)
-    config_output = workspace / "from_config.npy"
-    cli_output = workspace / "from_cli.npy"
-    config_path = tmp_path / "process_labeled.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[process_labeled]",
-                f'workspace = "{workspace}"',
-                'run = "0008"',
-                f'database_dir = "{db_dir}"',
-                f'output_file = "{config_output}"',
-                "baseline_window_scale = 12.5",
-            ]
-        ),
-        encoding="utf-8",
-    )
+def test_cdf_main_writes_labeled_output_for_selected_run(tmp_path, monkeypatch) -> None:
+    workspace, trace_root = make_workspace(tmp_path)
+    seed_labels(workspace)
 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["process-labeled", "-c", str(config_path), "-o", str(cli_output), "-d", str(db_dir)],
+        ["cdf", "-t", str(trace_root), "-w", str(workspace), "-r", "0008", "--labeled"],
     )
     main()
 
-    assert not config_output.exists()
-    assert cli_output.is_file()
+    output_path = workspace / "run_0008_labeled_cdf.npy"
+    payload = np.load(output_path, allow_pickle=True).item()
+
+    assert output_path.is_file()
+    assert payload["run_id"] == 8
+    assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
+
+
+def test_cdf_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
+    workspace, trace_root = make_workspace(tmp_path)
+    seed_labels(workspace)
+    config_path = tmp_path / "cdf.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                f'trace_path = "{trace_root}"',
+                f'workspace = "{workspace}"',
+                'run = "0008"',
+                "labeled = true",
+                "baseline_window_scale = 12.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
+    main()
+
+    output_path = workspace / "run_0008_labeled_cdf.npy"
+    payload = np.load(output_path, allow_pickle=True).item()
+    assert output_path.is_file()
+    assert payload["run_id"] == 8

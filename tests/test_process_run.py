@@ -6,8 +6,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from trace_label.batch.process_run import CDF_THRESHOLDS, CDF_VALUE_BINS, build_trace_cdf_histogram, main, preprocess_traces, sample_cdf_points
-from trace_label.input_reader import TraceSource
+from attpc_estimator.label_trace.input_reader import TraceSource
+from attpc_estimator.viewer.cdf import CDF_THRESHOLDS, CDF_VALUE_BINS, build_trace_cdf_histogram, main
+from attpc_estimator.viewer.utils import preprocess_traces, sample_cdf_points
 
 
 def write_hdf5_input(path: Path) -> None:
@@ -87,8 +88,8 @@ def test_sample_cdf_points_uses_under_frequency_convention() -> None:
 
 
 def test_preprocess_traces_matches_existing_reader_implementation(tmp_path) -> None:
-    input_path = tmp_path / "run_0007.h5"
-    write_hdf5_input(input_path)
+    trace_path = tmp_path / "run_0007.h5"
+    write_hdf5_input(trace_path)
 
     traces = np.array(
         [
@@ -98,11 +99,11 @@ def test_preprocess_traces_matches_existing_reader_implementation(tmp_path) -> N
         dtype=np.float32,
     )
 
-    source = TraceSource(input_path)
+    source = TraceSource(trace_path)
     try:
         expected = source.preprocess_traces(traces, baseline_window_scale=20.0)
     finally:
-        source.file.close()
+        source.close()
 
     actual = preprocess_traces(traces, baseline_window_scale=20.0)
     np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
@@ -119,24 +120,26 @@ def test_preprocess_traces_matches_reference_fft_implementation() -> None:
 
 
 def test_build_trace_cdf_histogram_returns_expected_shape_and_count(tmp_path) -> None:
-    input_path = tmp_path / "run_0005.h5"
-    write_hdf5_input(input_path)
+    trace_path = tmp_path / "run_0005.h5"
+    write_hdf5_input(trace_path)
 
-    histogram = build_trace_cdf_histogram(input_path=input_path)
+    histogram = build_trace_cdf_histogram(trace_file_path=trace_path)
 
     assert histogram.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
     assert np.all(histogram >= 0)
     assert int(histogram.sum()) == 3 * len(CDF_THRESHOLDS)
 
 
-def test_process_run_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
-    input_path = tmp_path / "run_0006.h5"
-    write_hdf5_input(input_path)
+def test_cdf_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "run_0006.h5"
+    write_hdf5_input(trace_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
 
-    monkeypatch.setattr(sys, "argv", ["process-run", "-i", str(input_path)])
+    monkeypatch.setattr(sys, "argv", ["cdf", "-t", str(trace_path), "-w", str(workspace), "-r", "0006"])
     main()
 
-    output_path = tmp_path / "run_0006_cdf_hist2d.npy"
+    output_path = workspace / "run_0006_cdf.npy"
     saved = np.load(output_path)
 
     assert output_path.is_file()
@@ -144,43 +147,45 @@ def test_process_run_main_writes_default_output_file(tmp_path, monkeypatch) -> N
     assert int(saved.sum()) == 3 * len(CDF_THRESHOLDS)
 
 
-def test_process_run_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
-    input_path = tmp_path / "run_0006.h5"
-    output_path = tmp_path / "from_config.npy"
-    write_hdf5_input(input_path)
+def test_cdf_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "run_0006.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_hdf5_input(trace_path)
     config_path = tmp_path / "batch.toml"
     config_path.write_text(
         "\n".join(
             [
-                "[batch]",
-                f'input_file = "{input_path}"',
-                f'output_file = "{output_path}"',
+                f'trace_path = "{trace_path}"',
+                f'workspace = "{workspace}"',
+                'run = "0006"',
                 "baseline_window_scale = 12.5",
             ]
         ),
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(sys, "argv", ["batch", "-c", str(config_path)])
+    monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
     main()
 
+    output_path = workspace / "run_0006_cdf.npy"
     saved = np.load(output_path)
     assert output_path.is_file()
     assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
 
 
-def test_process_run_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
-    input_path = tmp_path / "run_0006.h5"
-    write_hdf5_input(input_path)
-    config_output = tmp_path / "from_config.npy"
-    cli_output = tmp_path / "from_cli.npy"
+def test_cdf_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "run_0006.h5"
+    write_hdf5_input(trace_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
     config_path = tmp_path / "batch.toml"
     config_path.write_text(
         "\n".join(
             [
-                "[batch]",
-                f'input_file = "{input_path}"',
-                f'output_file = "{config_output}"',
+                f'trace_path = "{trace_path}"',
+                f'workspace = "{workspace}"',
+                'run = "9999"',
                 "baseline_window_scale = 12.5",
             ]
         ),
@@ -190,9 +195,9 @@ def test_process_run_main_cli_arguments_override_config_file(tmp_path, monkeypat
     monkeypatch.setattr(
         sys,
         "argv",
-        ["batch", "-c", str(config_path), "-o", str(cli_output), "--baseline-window-scale", "20.0"],
+        ["cdf", "-c", str(config_path), "-r", "0006", "--baseline-window-scale", "20.0"],
     )
     main()
 
-    assert not config_output.exists()
-    assert cli_output.is_file()
+    output_path = workspace / "run_0006_cdf.npy"
+    assert output_path.is_file()

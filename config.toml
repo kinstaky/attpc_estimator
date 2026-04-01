@@ -1,0 +1,7 @@
+trace_path = "/data/rcnp2025/attpc_flow/hdf5"
+run = 1056
+workspace = "/data/rcnp2025/attpc_estimator"
+baseline_window_scale = 10.0
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 50.0

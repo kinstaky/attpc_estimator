@@ -16,15 +16,17 @@ from .services import TraceLabelService
 
 def main() -> None:
     args = _parse_args()
-    input_path = (Path(args.workspace).expanduser().resolve() / f"run_{args.run}.h5").resolve()
+    trace_path = (
+        Path(args.workspace).expanduser().resolve() / f"run_{args.run}.h5"
+    ).resolve()
     db_dir = Path(args.database_dir).expanduser().resolve()
 
-    if not input_path.is_file():
-        raise SystemExit(f"input file not found: {input_path}")
+    if not trace_path.is_file():
+        raise SystemExit(f"trace file not found: {trace_path}")
     db_dir.mkdir(parents=True, exist_ok=True)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
-    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
+    frontend_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
     app = create_app(service, frontend_dist)
 
     port = _pick_port(args.port)
@@ -55,7 +57,9 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="Directory containing the SQLite database file",
     )
-    parser.add_argument("--port", type=int, default=8765, help="Preferred local HTTP port")
+    parser.add_argument(
+        "--port", type=int, default=8765, help="Preferred local HTTP port"
+    )
     return parser.parse_args()
 
 

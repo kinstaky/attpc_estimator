@@ -1,2 +1,0 @@
-"""Trace labeling application."""
-

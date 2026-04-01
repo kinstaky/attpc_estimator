@@ -1,9 +1,9 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.2,<0.12"]
+build-backend = "uv_build"
 
 [project]
-name = "trace-label"
+name = "attpc-estimator"
 version = "0.1.0"
 description = "Local trace labeling app with FastAPI, Vue, and Plotly"
 readme = "README.md"
@@ -16,6 +16,7 @@ dependencies = [
   "matplotlib>=3.10,<4.0",
   "numba>=0.62,<1.0",
   "numpy>=2.4.3",
+  "scipy>=1.17.1",
   "tqdm>=4.67,<5.0",
   "uvicorn>=0.30,<1.0",
 ]
@@ -26,12 +27,12 @@ dev = [
 ]
 
 [project.scripts]
-label = "trace_label.__main__:main"
-process-run = "trace_label.batch.process_run:main"
-process-labeled = "trace_label.batch.process_labeled:main"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/trace_label"]
+amplitude = "attpc_estimator.viewer.amplitude:main"
+cdf = "attpc_estimator.viewer.cdf:main"
+filter = "attpc_estimator.viewer.filter:main"
+label = "attpc_estimator.label_trace.__main__:main"
+relabel-labeled = "attpc_estimator.viewer.relabel_labeled:main"
+viewer = "attpc_estimator.viewer.webui:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -47,12 +47,12 @@ function toggleBrowseVisualMode() {
   state.browseVisualMode = state.browseVisualMode === "raw" ? "analysis" : "raw";
 }
 
-async function init() {
+async function init(initialBootstrap = null) {
   state.loading = true;
   clearTransientUi();
   try {
     const [bootstrap, strangeLabelsPayload] = await Promise.all([
-      getBootstrap(),
+      initialBootstrap ? Promise.resolve(initialBootstrap) : getBootstrap(),
       getStrangeLabels(),
     ]);
     const labeledCount =

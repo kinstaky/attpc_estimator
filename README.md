@@ -41,8 +41,48 @@ uv run label -w <workspace> -r <run> -d <sqlite-dir>
 Generate a 2D histogram of FFT CDF values with:
 
 ```bash
-uv run batch -i <input-file>
+uv run cdf -t <trace-path> -w <workspace> -r <run>
+uv run cdf -t <trace-path> -w <workspace> -r <run> --labeled
 ```
+
+CDF arguments:
+
+- `-t`, `--trace-path`: trace file or directory containing `run_<run>.h5` files
+- `-w`, `--workspace`: workspace directory containing outputs and `trace_label.sqlite3`
+- `-r`, `--run`: required run identifier
+- `--baseline-window-scale`: optional FFT baseline-removal scale, default `20.0`
+
+The `cdf` command writes:
+
+- full traces: `workspace/run_<run>_cdf.npy`
+- labeled traces: `workspace/run_<run>_labeled_cdf.npy`
+
+Generate peak-amplitude histograms with:
+
+```bash
+uv run amplitude -t <trace-path> -w <workspace> -r <run>
+uv run amplitude -t <trace-path> -w <workspace> -r <run> --labeled
+```
+
+Generate a simple filter file for the viewer with:
+
+```bash
+uv run filter -t <trace-path> -w <workspace> -r <run> --amplitude 20 60
+```
+
+This writes `filter_run_<run>_*.npy` files with `run,event_id,trace_id` rows that the viewer app can load.
+
+Launch the histogram and filtered-trace viewer with:
+
+```bash
+uv run viewer -t <trace-path> -w <workspace>
+```
+
+The viewer contains:
+
+- a left navigation sidebar
+- a `Histograms` page with `CDF` and `Amplitude` tabs plus `All traces` / `Labeled` selection
+- a `Trace Review` page for browsing traces from backend-discovered `filter_*.npy` files
 
 Label arguments:
 
@@ -50,34 +90,6 @@ Label arguments:
 - `-r`, `--run`: run identifier used to reconstruct `<workspace>/run_<run>.h5`
 - `-d`, `--database-dir`: directory where `trace_label.sqlite3` is stored
 - `--port`: optional preferred HTTP port, default `8765`
-
-Batch arguments:
-
-- `-i`, `--input-file`: input HDF5 trace file
-- `-o`, `--output-file`: optional output `.npy` file
-- `--baseline-window-scale`: optional FFT baseline-removal scale, default `20.0`
-
-Generate per-label 2D histograms from labeled traces with:
-
-```bash
-uv run batch-labeled -w <workspace> -d <sqlite-dir>
-uv run batch-labeled -w <workspace> -r <run> -d <sqlite-dir>
-```
-
-Labeled batch arguments:
-
-- `-w`, `--workspace`: workspace directory containing `run_<run>.h5` files
-- `-r`, `--run`: optional run identifier; when omitted, aggregate labeled traces across all runs present in both workspace and database
-- `-d`, `--database-dir`: directory containing `trace_label.sqlite3`
-- `-o`, `--output-file`: optional output `.npy` file
-- `--baseline-window-scale`: optional FFT baseline-removal scale, default `20.0`
-
-The labeled batch command writes a `.npy` object containing `label_titles`, `histograms`, and `trace_counts`.
-Each histogram has shape `(150, 100)`, and the full `histograms` array has shape `(num_labels, 150, 100)`.
-
-The batch command writes a NumPy array with shape `(150, 100)`.
-The first axis corresponds to `F(1)` through `F(150)`, and the second axis is the CDF-value range `0` to `1` split into `100` bins.
-Each trace contributes one count to each `F(k)` row, so one trace fills `150` histogram cells.
 
 The app prints the selected port when it starts. If needed, open `http://127.0.0.1:<port>` manually in your browser.
 
@@ -88,6 +100,7 @@ The app prints the selected port when it starts. If needed, open `http://127.0.0
 - Click `Start` or press `Space` to begin labeling.
 - Click `Add` to create a new strange-label shortcut.
 - The welcome panel shows the input file, database file, progress, and the current summary counts.
+- The welcome panel shows the trace source path, database file, progress, and the current summary counts.
 
 ### Label screen
 

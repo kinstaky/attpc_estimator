@@ -6,7 +6,7 @@ import threading
 import h5py
 import numpy as np
 
-from trace_label.input_reader import TraceSource
+from attpc_estimator.label_trace.input_reader import TraceSource
 
 
 def write_hdf5_input(path: Path, trace_count: int = 20) -> None:
@@ -38,10 +38,10 @@ def write_hdf5_input(path: Path, trace_count: int = 20) -> None:
 
 
 def test_review_navigation_prefetches_next_five_traces_asynchronously(tmp_path) -> None:
-    input_path = tmp_path / "run_0010.h5"
-    write_hdf5_input(input_path)
+    trace_path = tmp_path / "run_0010.h5"
+    write_hdf5_input(trace_path)
 
-    source = TraceSource(input_path)
+    source = TraceSource(trace_path)
     try:
         source.set_labeled({(1, trace_id): ("normal", "0") for trace_id in range(20)})
         started = threading.Event()
@@ -75,10 +75,10 @@ def test_review_navigation_prefetches_next_five_traces_asynchronously(tmp_path) 
 
 
 def test_trace_cache_stays_bounded_to_current_window(tmp_path) -> None:
-    input_path = tmp_path / "run_0011.h5"
-    write_hdf5_input(input_path)
+    trace_path = tmp_path / "run_0011.h5"
+    write_hdf5_input(trace_path)
 
-    source = TraceSource(input_path)
+    source = TraceSource(trace_path)
     try:
         source.set_labeled({(1, trace_id): ("normal", "0") for trace_id in range(20)})
         source.set_trace_mode("review", family="normal", label=None)

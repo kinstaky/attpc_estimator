@@ -3,16 +3,59 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .db import TraceLabelRepository
+from ..db import TraceLabelRepository
+from ..models import NORMAL_BUCKETS, StoredLabel, TraceRecord
 from .input_reader import TraceSource
-from .models import NORMAL_BUCKETS, RESERVED_SHORTCUTS, StoredLabel, TraceRecord, bucket_title, normalize_shortcut
+
+RESERVED_SHORTCUTS = {
+    "arrowleft",
+    "arrowright",
+    "arrowup",
+    "arrowdown",
+    "h",
+    "j",
+    "k",
+    "l",
+    "q",
+    "escape",
+    "space",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+}
+
+
+def bucket_title(bucket: int) -> str:
+    if bucket == 0:
+        return "0 peak"
+    if bucket == 1:
+        return "1 peak"
+    if bucket == 9:
+        return "9+ peaks"
+    return f"{bucket} peaks"
+
+
+def normalize_shortcut(value: str) -> str:
+    lowered = value.strip().lower()
+    if lowered == "space":
+        return " "
+    if lowered == "esc":
+        return "escape"
+    return lowered
 
 
 class TraceLabelService:
-    def __init__(self, input_path: Path, db_dir: Path) -> None:
-        self.input_path = input_path
-        self.db_path = db_dir / "trace_label.sqlite3"
-        self.source = TraceSource(input_path)
+    def __init__(self, trace_path: Path, db_dir: Path) -> None:
+        self.trace_path = trace_path
+        self.db_path = db_dir / "trace_label.db"
+        self.source = TraceSource(trace_path)
         self.repository = TraceLabelRepository(self.db_path)
         self.repository.initialize()
         run = self.source.get_run()
@@ -20,7 +63,8 @@ class TraceLabelService:
 
     def bootstrap_state(self) -> dict[str, Any]:
         return {
-            "inputFile": str(self.input_path),
+            "appType": "label",
+            "tracePath": str(self.trace_path),
             "databaseFile": str(self.db_path),
             "normalSummary": self._normal_summary(),
             "strangeSummary": self.repository.get_strange_counts(),
@@ -64,11 +108,7 @@ class TraceLabelService:
         }
 
     def save_label(
-        self,
-        event_id: int,
-        trace_id: int,
-        family: str,
-        label: str
+        self, event_id: int, trace_id: int, family: str, label: str
     ) -> dict[str, Any]:
         if family not in {"normal", "strange"}:
             raise ValueError("label family must be 'normal' or 'strange'")

@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import pytest
 
-from trace_label.services import TraceLabelService
+from attpc_estimator.label_trace.services import TraceLabelService
 
 
 def write_hdf5_input(path) -> None:
@@ -43,11 +43,11 @@ def write_hdf5_input(path) -> None:
 
 
 def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
-    input_path = tmp_path / "run_0001.h5"
+    trace_path = tmp_path / "run_0001.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
     service.create_strange_label("Noise", "n")
     service.save_label(event_id=1, trace_id=0, family="normal", label="0")
     service.save_label(event_id=1, trace_id=1, family="strange", label="Noise")
@@ -87,11 +87,11 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
 
 def test_label_and_review_stacks_are_independent(tmp_path) -> None:
     random.seed(7)
-    input_path = tmp_path / "run_0002.h5"
+    trace_path = tmp_path / "run_0002.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
 
     first_label_trace = service.next_trace()
     second_label_trace = service.next_trace()
@@ -127,22 +127,22 @@ def test_label_and_review_stacks_are_independent(tmp_path) -> None:
 
 
 def test_review_mode_rejects_empty_selection(tmp_path) -> None:
-    input_path = tmp_path / "run_0003.h5"
+    trace_path = tmp_path / "run_0003.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
 
     with pytest.raises(LookupError, match="no traces match"):
         service.set_trace_mode(mode="review", family="normal", label="1")
 
 
 def test_review_mode_supports_grouped_normal_filter(tmp_path) -> None:
-    input_path = tmp_path / "run_0007.h5"
+    trace_path = tmp_path / "run_0007.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
     service.save_label(event_id=1, trace_id=0, family="normal", label="4")
     service.save_label(event_id=1, trace_id=1, family="normal", label="9")
     service.save_label(event_id=2, trace_id=0, family="normal", label="2")
@@ -165,11 +165,11 @@ def test_review_mode_supports_grouped_normal_filter(tmp_path) -> None:
 
 def test_trace_payload_includes_transformed_trace(tmp_path) -> None:
     random.seed(11)
-    input_path = tmp_path / "run_0004.h5"
+    trace_path = tmp_path / "run_0004.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
 
     payload = service.next_trace()
 
@@ -185,11 +185,11 @@ def test_trace_payload_includes_transformed_trace(tmp_path) -> None:
 
 
 def test_delete_strange_label_rejects_labels_with_traces(tmp_path) -> None:
-    input_path = tmp_path / "run_0005.h5"
+    trace_path = tmp_path / "run_0005.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
     service.create_strange_label("Noise", "n")
     service.save_label(event_id=1, trace_id=1, family="strange", label="Noise")
 
@@ -198,11 +198,11 @@ def test_delete_strange_label_rejects_labels_with_traces(tmp_path) -> None:
 
 
 def test_delete_strange_label_allows_unused_labels(tmp_path) -> None:
-    input_path = tmp_path / "run_0006.h5"
+    trace_path = tmp_path / "run_0006.h5"
     db_dir = tmp_path / "db"
-    write_hdf5_input(input_path)
+    write_hdf5_input(trace_path)
 
-    service = TraceLabelService(input_path=input_path, db_dir=db_dir)
+    service = TraceLabelService(trace_path=trace_path, db_dir=db_dir)
     service.create_strange_label("Noise", "n")
     service.create_strange_label("Burst", "b")
 

@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Literal
 
-from .models import TraceRecord
+from ..models import TraceRecord
 
 TraceKey = tuple[int, int]
 CACHE_RADIUS = 5

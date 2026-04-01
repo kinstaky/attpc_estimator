@@ -4,18 +4,18 @@ import sys
 
 import pytest
 
-from trace_label import __main__
+from attpc_estimator.label_trace import __main__
 
 
-def test_main_reconstructs_input_path_from_workspace_and_run(tmp_path, monkeypatch) -> None:
-    input_path = tmp_path / "run_0042.h5"
-    input_path.touch()
+def test_main_reconstructs_trace_path_from_workspace_and_run(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "run_0042.h5"
+    trace_path.touch()
     db_dir = tmp_path / "db"
     captured: dict[str, object] = {}
 
     class DummyService:
-        def __init__(self, input_path, db_dir) -> None:
-            captured["input_path"] = input_path
+        def __init__(self, trace_path, db_dir) -> None:
+            captured["trace_path"] = trace_path
             captured["db_dir"] = db_dir
 
     monkeypatch.setattr(
@@ -30,7 +30,7 @@ def test_main_reconstructs_input_path_from_workspace_and_run(tmp_path, monkeypat
 
     __main__.main()
 
-    assert captured["input_path"] == input_path.resolve()
+    assert captured["trace_path"] == trace_path.resolve()
     assert captured["db_dir"] == db_dir.resolve()
 
 

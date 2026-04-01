@@ -81,8 +81,8 @@
 
     <dl class="meta-list">
       <div>
-        <dt>Input</dt>
-        <dd>{{ bootstrap.inputFile }}</dd>
+        <dt>Trace Source</dt>
+        <dd>{{ bootstrap.tracePath }}</dd>
       </div>
       <div>
         <dt>Database</dt>
