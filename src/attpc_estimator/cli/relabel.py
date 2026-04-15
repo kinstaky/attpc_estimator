@@ -13,6 +13,7 @@ from ..process.relabel import (
     SATURATION_DROP_THRESHOLD_DEFAULT,
     SATURATION_RELABEL_MIN_PLATEAU_LENGTH_DEFAULT,
     build_relabel_rows,
+    confused_trace_key_sections_for_label,
     print_ratio,
     ratio_items_for_label,
 )
@@ -66,6 +67,13 @@ def main() -> None:
     print(f"total traces: {len(rows)}")
     for name, ratio in ratio_items_for_label(args.label, metrics):
         print_ratio(name, ratio)
+    for title, trace_keys in confused_trace_key_sections_for_label(args.label, rows):
+        print(title)
+        if not trace_keys:
+            print("none")
+            continue
+        for run, event_id, trace_id in trace_keys:
+            print(f"{run}/{event_id}/{trace_id}")
 
 
 def _parse_args() -> argparse.Namespace:

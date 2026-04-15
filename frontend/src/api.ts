@@ -77,6 +77,12 @@ export function nextTrace(): Promise<TracePayload> {
   });
 }
 
+export function nextEvent(): Promise<TracePayload> {
+  return request<TracePayload>("/api/traces/next-event", {
+    method: "POST",
+  });
+}
+
 export function setLabelSession(run: number): Promise<SessionResponse> {
   return setSession({ mode: "label", run });
 }
@@ -104,8 +110,28 @@ export function setFilterReviewSession(filterFile: string): Promise<SessionRespo
   });
 }
 
+export function setEventTraceReviewSession(
+  run: number,
+  eventId: number,
+  traceId: number,
+): Promise<SessionResponse> {
+  return setSession({
+    mode: "review",
+    run,
+    source: "event_trace",
+    eventId,
+    traceId,
+  });
+}
+
 export function previousTrace(): Promise<TracePayload> {
   return request<TracePayload>("/api/traces/previous", {
+    method: "POST",
+  });
+}
+
+export function previousEvent(): Promise<TracePayload> {
+  return request<TracePayload>("/api/traces/previous-event", {
     method: "POST",
   });
 }

@@ -31,6 +31,8 @@ class SessionRequest(BaseModel):
     family: str | None = None
     label: str | None = None
     filterFile: str | None = None
+    eventId: int | None = None
+    traceId: int | None = None
 
 
 class HistogramJobRequest(BaseModel):
@@ -70,6 +72,8 @@ def build_api_router(service: EstimatorService) -> APIRouter:
                 family=request.family,
                 label=request.label,
                 filter_file=request.filterFile,
+                event_id=request.eventId,
+                trace_id=request.traceId,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -87,6 +91,20 @@ def build_api_router(service: EstimatorService) -> APIRouter:
     def previous_trace() -> dict:
         try:
             return service.previous_trace()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/traces/next-event")
+    def next_event() -> dict:
+        try:
+            return service.next_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/traces/previous-event")
+    def previous_event() -> dict:
+        try:
+            return service.previous_event()
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -45,6 +45,39 @@ def write_hdf5_input(path) -> None:
         )
 
 
+def write_sparse_hdf5_input(path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 4
+        events.attrs["bad_events"] = np.array([2], dtype=np.int64)
+
+        event_1 = events.create_group("event_1")
+        get_1 = event_1.create_group("get")
+        get_1.create_dataset(
+            "pads",
+            data=np.array(
+                [
+                    [10, 11, 12, 13, 14, 1, 2, 3],
+                    [20, 21, 22, 23, 24, 4, 5, 6],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+        event_4 = events.create_group("event_4")
+        get_4 = event_4.create_group("get")
+        get_4.create_dataset(
+            "pads",
+            data=np.array(
+                [
+                    [30, 31, 32, 33, 34, 7, 8, 9],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+
 def _trace_from_second_derivative(second_diff: list[float]) -> np.ndarray:
     values = np.asarray(second_diff, dtype=np.float32)
     trace = np.zeros(values.size + 2, dtype=np.float32)
@@ -74,6 +107,8 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
         "family": "normal",
         "label": None,
         "filterFile": None,
+        "eventId": None,
+        "traceId": None,
     }
     assert payload["traceCount"] == 2
     first = payload["trace"]
@@ -87,6 +122,8 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
         "bitflipAnalysis": first["bitflipAnalysis"],
         "currentLabel": {"family": "normal", "label": "0"},
         "reviewProgress": {"current": 1, "total": 2},
+        "eventTraceCount": None,
+        "eventIdRange": None,
     }
     assert first["trace"] == payload["trace"]["trace"]
     assert first["transformed"] == payload["trace"]["transformed"]
@@ -120,6 +157,8 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
     assert (strange["eventId"], strange["traceId"]) == (1, 1)
     assert strange["currentLabel"] == {"family": "strange", "label": "Noise"}
     assert strange["reviewProgress"] == {"current": 1, "total": 1}
+    assert strange["eventTraceCount"] is None
+    assert strange["eventIdRange"] is None
 
 
 def test_label_and_review_stacks_are_independent(tmp_path) -> None:
@@ -205,6 +244,58 @@ def test_label_mode_keeps_forward_stack_stable_after_relabel(tmp_path) -> None:
     )
 
 
+def test_direct_review_mode_supports_event_and_trace_navigation(tmp_path) -> None:
+    trace_path = tmp_path / "run_0012.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_sparse_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+
+    payload = service.set_session(
+        mode="review",
+        run=12,
+        source="event_trace",
+        event_id=1,
+        trace_id=1,
+    )
+
+    assert payload["session"] == {
+        "mode": "review",
+        "run": 12,
+        "source": "event_trace",
+        "family": None,
+        "label": None,
+        "filterFile": None,
+        "eventId": 1,
+        "traceId": 1,
+    }
+    first = payload["trace"]
+    assert (first["eventId"], first["traceId"]) == (1, 1)
+    assert first["eventTraceCount"] == 2
+    assert first["eventIdRange"] == {"min": 1, "max": 4}
+    assert first["reviewProgress"] is None
+
+    still_last_trace = service.next_trace()
+    assert (still_last_trace["eventId"], still_last_trace["traceId"]) == (1, 1)
+
+    previous_trace = service.previous_trace()
+    assert (previous_trace["eventId"], previous_trace["traceId"]) == (1, 0)
+    assert previous_trace["eventTraceCount"] == 2
+
+    next_event = service.next_event()
+    assert (next_event["eventId"], next_event["traceId"]) == (4, 0)
+    assert next_event["eventTraceCount"] == 1
+    assert next_event["eventIdRange"] == {"min": 1, "max": 4}
+
+    still_last_event = service.next_event()
+    assert (still_last_event["eventId"], still_last_event["traceId"]) == (4, 0)
+
+    previous_event = service.previous_event()
+    assert (previous_event["eventId"], previous_event["traceId"]) == (1, 0)
+    assert previous_event["eventTraceCount"] == 2
+
+
 def test_review_mode_rejects_empty_selection(tmp_path) -> None:
     trace_path = tmp_path / "run_0003.h5"
     workspace = tmp_path / "workspace"
@@ -244,6 +335,8 @@ def test_review_mode_supports_grouped_normal_filter(tmp_path) -> None:
         "family": "normal",
         "label": "4+",
         "filterFile": None,
+        "eventId": None,
+        "traceId": None,
     }
 
     first = payload["trace"]
@@ -340,6 +433,8 @@ def test_serialize_trace_payload_includes_bitflip_structure_endpoints() -> None:
     assert payload["bitflipAnalysis"]["structures"] == [
         {"startBaselineIndex": 1, "endBaselineIndex": 6}
     ]
+    assert payload["eventTraceCount"] is None
+    assert payload["eventIdRange"] is None
 
 
 def test_label_mode_supports_legacy_trace_layout(tmp_path) -> None:
@@ -387,6 +482,10 @@ def test_service_bootstrap_uses_requested_default_run(tmp_path) -> None:
     try:
         bootstrap = service.bootstrap_state()
         assert bootstrap["runs"] == [4, 6]
+        assert bootstrap["eventRanges"] == {
+            "4": {"min": 1, "max": 2},
+            "6": {"min": 1, "max": 2},
+        }
         assert bootstrap["session"] == {
             "mode": "label",
             "run": 6,
@@ -394,6 +493,8 @@ def test_service_bootstrap_uses_requested_default_run(tmp_path) -> None:
             "family": None,
             "label": None,
             "filterFile": None,
+            "eventId": None,
+            "traceId": None,
         }
     finally:
         service.close()

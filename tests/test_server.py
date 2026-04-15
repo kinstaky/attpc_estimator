@@ -50,6 +50,8 @@ class DummyMergedService:
         family: str | None = None,
         label: str | None = None,
         filter_file: str | None = None,
+        event_id: int | None = None,
+        trace_id: int | None = None,
     ) -> dict:
         return {
             "session": {
@@ -59,6 +61,8 @@ class DummyMergedService:
                 "family": family,
                 "label": label,
                 "filterFile": filter_file,
+                "eventId": event_id,
+                "traceId": trace_id,
             }
         }
 
@@ -67,6 +71,12 @@ class DummyMergedService:
 
     def previous_trace(self) -> dict:
         raise LookupError("no previous trace")
+
+    def next_event(self) -> dict:
+        return {"run": 8, "eventId": 2, "traceId": 0}
+
+    def previous_event(self) -> dict:
+        raise LookupError("no previous event")
 
     def assign_label(self, *, event_id: int, trace_id: int, family: str, label: str) -> dict:
         return {
@@ -154,6 +164,8 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
                 "family": "normal",
                 "label": None,
                 "filterFile": None,
+                "eventId": None,
+                "traceId": None,
             }
         }
 
@@ -161,6 +173,14 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         previous = client.post("/api/traces/previous")
         assert previous.status_code == 404
         assert previous.json() == {"detail": "no previous trace"}
+        assert client.post("/api/traces/next-event").json() == {
+            "run": 8,
+            "eventId": 2,
+            "traceId": 0,
+        }
+        previous_event = client.post("/api/traces/previous-event")
+        assert previous_event.status_code == 404
+        assert previous_event.json() == {"detail": "no previous event"}
 
         assign = client.post(
             "/api/labels/assign",

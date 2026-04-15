@@ -19,6 +19,8 @@ def serialize_trace_payload(
     label: StoredLabel | None,
     review_progress: dict[str, int] | None,
     include_run: bool,
+    event_trace_count: int | None = None,
+    event_id_range: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     bitflip_analysis = analyze_bitflip_trace(
         record.trace,
@@ -52,6 +54,8 @@ def serialize_trace_payload(
         },
         "currentLabel": serialize_label(label),
         "reviewProgress": review_progress,
+        "eventTraceCount": event_trace_count,
+        "eventIdRange": event_id_range,
     }
     if include_run:
         payload["run"] = int(record.run)

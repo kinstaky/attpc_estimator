@@ -5,7 +5,7 @@
         <p class="page-kicker">Review</p>
         <h1>Trace review</h1>
         <p class="page-copy">
-          Review either labeled trace sets or traces referenced by saved filter files.
+          Review labeled traces, filter-file selections, or direct HDF5 event/trace positions.
         </p>
       </div>
     </div>
@@ -57,6 +57,41 @@
                 :model-value="review.state.label"
                 variant="outlined"
                 @update:model-value="review.setLabel"
+              />
+            </v-col>
+          </template>
+          <template v-else-if="review.state.source === 'event_trace'">
+            <v-col cols="12" md="3">
+              <v-select
+                :items="runOptions"
+                item-title="title"
+                item-value="value"
+                label="Run"
+                :model-value="review.state.run"
+                variant="outlined"
+                @update:model-value="review.setRun"
+              />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-text-field
+                label="Event id"
+                type="number"
+                :model-value="review.state.eventId"
+                variant="outlined"
+                :hint="eventRangeText"
+                persistent-hint
+                @update:model-value="review.setEventId"
+              />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-text-field
+                label="Trace id"
+                type="number"
+                :model-value="review.state.traceId"
+                variant="outlined"
+                :hint="traceRangeText"
+                persistent-hint
+                @update:model-value="review.setTraceId"
               />
             </v-col>
           </template>
@@ -124,7 +159,7 @@
           <h2>{{ currentLabelText(review.state.currentTrace.currentLabel) }}</h2>
         </div>
         <div class="trace-stage-hints">
-          <span>Use J / K or arrows to navigate.</span>
+          <span>{{ navigationHintText }}</span>
           <span>Press F to cycle the plot view.</span>
         </div>
       </v-card-title>
@@ -207,6 +242,7 @@ let keydownAttached = false;
 const reviewSourceOptions = [
   { title: "Labeled traces", value: "label_set" },
   { title: "Filter file", value: "filter_file" },
+  { title: "Direct event/trace", value: "event_trace" },
 ];
 
 const familyOptions = [
@@ -258,10 +294,44 @@ const reviewSourceLabel = computed(() => {
   if (review.state.source === "filter_file") {
     return review.state.filterFile || "Filter file";
   }
+  if (review.state.source === "event_trace") {
+    return "Direct event/trace";
+  }
   if (!review.state.label) {
     return `Labeled ${review.state.family}`;
   }
   return `${review.state.family}: ${review.state.label}`;
+});
+
+const navigationHintText = computed(() =>
+  review.state.source === "event_trace"
+    ? "Use J / K or up/down for traces, H / L or left/right for events."
+    : "Use J / K or arrows to navigate.",
+);
+
+const eventRangeText = computed(() => {
+  const run = review.state.run;
+  if (run === null || run === undefined) {
+    return "Select a run to see the event range.";
+  }
+  const range = shell.state.bootstrap?.eventRanges?.[String(run)];
+  if (!range) {
+    return "Event range unavailable.";
+  }
+  return `Event range: ${range.min} .. ${range.max}`;
+});
+
+const traceRangeText = computed(() => {
+  const trace = review.state.currentTrace;
+  if (
+    review.state.source !== "event_trace"
+    || !trace
+    || trace.eventTraceCount === null
+    || review.state.eventId !== trace.eventId
+  ) {
+    return "Load an event to see the trace range.";
+  }
+  return `Trace range: 0 .. ${trace.eventTraceCount - 1}`;
 });
 
 function currentLabelText(label) {
@@ -276,6 +346,11 @@ function currentLabelText(label) {
 
 async function submitReview() {
   await router.replace({ name: "review", query: review.buildQuery() });
+  try {
+    await review.loadReviewSet();
+  } catch {
+    // Store already captured the error.
+  }
 }
 
 function hasReviewQuery(query) {
@@ -283,13 +358,27 @@ function hasReviewQuery(query) {
 }
 
 function reviewQueryMatchesState(query) {
-  const source = query.source === "filter_file" ? "filter_file" : "label_set";
+  const source = query.source === "filter_file"
+    ? "filter_file"
+    : query.source === "event_trace"
+      ? "event_trace"
+      : "label_set";
   if (review.state.source !== source) {
     return false;
   }
   if (source === "filter_file") {
     const filterFile = typeof query.filterFile === "string" ? query.filterFile : "";
     return review.state.filterFile === filterFile;
+  }
+  if (source === "event_trace") {
+    const queryRun = query.run === undefined ? null : Number(query.run);
+    const queryEventId = query.eventId === undefined ? null : Number(query.eventId);
+    const queryTraceId = query.traceId === undefined ? null : Number(query.traceId);
+    return (
+      review.state.run === queryRun
+      && review.state.eventId === queryEventId
+      && review.state.traceId === queryTraceId
+    );
   }
   const queryRun = query.run === undefined ? null : Number(query.run);
   const queryFamily = query.family === "strange" ? "strange" : "normal";
@@ -343,6 +432,22 @@ async function onKeydown(event) {
   if (key === "arrowdown" || key === "j") {
     event.preventDefault();
     await review.nextReviewTrace();
+    return;
+  }
+  if (
+    review.state.source === "event_trace"
+    && (key === "arrowleft" || key === "h")
+  ) {
+    event.preventDefault();
+    await review.previousReviewEvent();
+    return;
+  }
+  if (
+    review.state.source === "event_trace"
+    && (key === "arrowright" || key === "l")
+  ) {
+    event.preventDefault();
+    await review.nextReviewEvent();
   }
 }
 

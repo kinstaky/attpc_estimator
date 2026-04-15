@@ -95,7 +95,23 @@ def load_trace_record(
         event_id=event_id,
         trace_ids=np.asarray([trace_id], dtype=np.int64),
     )
-    row = rows[0]
+    return trace_record_from_pad_row(
+        run=run,
+        event_id=event_id,
+        trace_id=trace_id,
+        row=rows[0],
+        baseline_window_scale=baseline_window_scale,
+    )
+
+
+def trace_record_from_pad_row(
+    *,
+    run: int,
+    event_id: int,
+    trace_id: int,
+    row: np.ndarray,
+    baseline_window_scale: float,
+) -> TraceRecord:
     hardware = np.asarray(row[:PAD_TRACE_OFFSET], dtype=np.float32)
     raw = np.asarray(row[PAD_TRACE_OFFSET:], dtype=np.float32)
     trace = preprocess_traces(

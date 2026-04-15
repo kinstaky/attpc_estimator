@@ -312,6 +312,9 @@ def test_relabel_main_noise_writes_rows_and_prints_noise_ratios(
     ]
     assert "old normal:0 -> new normal:0: 1/1 = 1.000000" in stdout
     assert "old normal:1 -> new normal:0: 1/3 = 0.333333" in stdout
+    assert "old normal:0 -> not normal:0" in stdout
+    assert "old normal:1 -> new normal:0" in stdout
+    assert "8/1/1" in stdout
     assert "old strange:oscillation -> new strange:oscillation" not in stdout
     assert "old normal:1 -> new strange:oscillation" not in stdout
 
@@ -357,6 +360,8 @@ def test_relabel_main_oscillation_writes_rows_and_prints_oscillation_ratios(
         "old strange:oscillation -> new strange:oscillation: 1/1 = 1.000000" in stdout
     )
     assert "old normal:1 -> new strange:oscillation: 1/3 = 0.333333" in stdout
+    assert "old strange:oscillation -> not strange:oscillation" in stdout
+    assert "8/2/0" in stdout
 
 
 def test_relabel_main_zero_pads_integer_run_from_config_file(
@@ -480,6 +485,8 @@ def test_relabel_main_saturation_writes_rows_and_prints_saturation_ratios(
     ]
     assert "old strange:saturation -> new strange:saturation: 1/1 = 1.000000" in stdout
     assert "old normal:1 -> new strange:saturation: 1/2 = 0.500000" in stdout
+    assert "old strange:saturation -> not strange:saturation" in stdout
+    assert "8/1/1" in stdout
 
 
 def test_build_labeled_amplitude_histograms_groups_histograms_by_label(

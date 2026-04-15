@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 from typing import Any, Literal
 
+import h5py
 import numpy as np
 
 from ..model.label import NORMAL_BUCKETS, StoredLabel
@@ -20,10 +21,11 @@ from .labeling import (
     normalize_shortcut,
     normal_summary,
 )
-from .traces import TraceSource
+from .traces import DirectTraceSource, TraceSource
 from .traces.payload import serialize_trace_payload
+from ..utils.trace_data import describe_trace_events
 
-ReviewSource = Literal["label_set", "filter_file"]
+ReviewSource = Literal["label_set", "filter_file", "event_trace"]
 SessionMode = Literal["label", "review"]
 logger = logging.getLogger("attpc_estimator.estimator")
 
@@ -36,6 +38,8 @@ class SessionState:
     family: str | None = None
     label: str | None = None
     filter_file: str | None = None
+    event_id: int | None = None
+    trace_id: int | None = None
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -45,6 +49,8 @@ class SessionState:
             "family": self.family,
             "label": self.label,
             "filterFile": self.filter_file,
+            "eventId": self.event_id,
+            "traceId": self.trace_id,
         }
 
 
@@ -67,6 +73,7 @@ class EstimatorService:
         self.bitflip_baseline_threshold = bitflip_baseline_threshold
         self.verbose = verbose
         self.run_files = collect_run_files(trace_path)
+        self.run_event_ranges = self._collect_run_event_ranges()
         self.repository = LabelRepository(labels_db_path(workspace))
         self.repository.initialize()
         self.histograms = HistogramService(
@@ -80,7 +87,7 @@ class EstimatorService:
         )
         resolved_default_run = self._resolve_initial_run(default_run)
         self.session = SessionState(mode="label", run=resolved_default_run)
-        self._sources: dict[tuple[Any, ...], TraceSource] = {}
+        self._sources: dict[tuple[Any, ...], TraceSource | DirectTraceSource] = {}
         self._active_source_key: tuple[Any, ...] | None = None
 
     def close(self) -> None:
@@ -97,6 +104,10 @@ class EstimatorService:
             "tracePath": str(self.trace_path),
             "databaseFile": str(labels_db_path(self.workspace)),
             "runs": histogram_bootstrap["runs"],
+            "eventRanges": {
+                str(run): {"min": event_range[0], "max": event_range[1]}
+                for run, event_range in self.run_event_ranges.items()
+            },
             "filterFiles": histogram_bootstrap["filterFiles"],
             "histogramAvailability": histogram_bootstrap["histogramAvailability"],
             "normalSummary": normal_summary(self.repository),
@@ -114,6 +125,8 @@ class EstimatorService:
         family: str | None = None,
         label: str | None = None,
         filter_file: str | None = None,
+        event_id: int | None = None,
+        trace_id: int | None = None,
     ) -> dict[str, Any]:
         if mode == "label":
             resolved_run = self._resolve_run(run)
@@ -146,9 +159,9 @@ class EstimatorService:
 
         if mode != "review":
             raise ValueError("session mode must be 'label' or 'review'")
-        if source not in {"label_set", "filter_file"}:
+        if source not in {"label_set", "filter_file", "event_trace"}:
             raise ValueError(
-                "review session source must be 'label_set' or 'filter_file'"
+                "review session source must be 'label_set', 'filter_file', or 'event_trace'"
             )
 
         if source == "label_set":
@@ -182,36 +195,69 @@ class EstimatorService:
                 ),
             }
 
-        if filter_file is None:
-            raise ValueError("filterFile is required for filter-file review")
-        source_key = ("review", "filter_file", filter_file)
-        filter_source = self._get_or_create_source(source_key)
-        trace_count = filter_source.trace_count()
+        if source == "filter_file":
+            if filter_file is None:
+                raise ValueError("filterFile is required for filter-file review")
+            source_key = ("review", "filter_file", filter_file)
+            filter_source = self._get_or_create_source(source_key)
+            trace_count = filter_source.trace_count()
+            self._active_source_key = source_key
+            self.session = SessionState(
+                mode="review",
+                run=None,
+                source="filter_file",
+                filter_file=filter_file,
+            )
+            payload: dict[str, Any] = {
+                "session": self.session.as_payload(),
+                "traceCount": trace_count,
+            }
+            payload["trace"] = (
+                self._serialize_source_trace(
+                    filter_source.current_trace() or filter_source.next_trace()
+                )
+                if trace_count > 0
+                else None
+            )
+            return payload
+
+        resolved_run = self._resolve_run(run)
+        if event_id is None or trace_id is None:
+            raise ValueError("eventId and traceId are required for direct event review")
+        source_key = ("review", "event_trace", resolved_run)
+        direct_source = self._get_or_create_source(source_key)
+        assert isinstance(direct_source, DirectTraceSource)
+        record = direct_source.set_position(event_id=int(event_id), trace_id=int(trace_id))
         self._active_source_key = source_key
         self.session = SessionState(
             mode="review",
-            run=None,
-            source="filter_file",
-            filter_file=filter_file,
+            run=resolved_run,
+            source="event_trace",
+            event_id=int(event_id),
+            trace_id=int(trace_id),
         )
-        payload: dict[str, Any] = {
+        return {
             "session": self.session.as_payload(),
-            "traceCount": trace_count,
+            "trace": self._serialize_source_trace(record),
         }
-        payload["trace"] = (
-            self._serialize_source_trace(
-                filter_source.current_trace() or filter_source.next_trace()
-            )
-            if trace_count > 0
-            else None
-        )
-        return payload
 
     def next_trace(self) -> dict[str, Any]:
         return self._serialize_source_trace(self._current_source().next_trace())
 
     def previous_trace(self) -> dict[str, Any]:
         return self._serialize_source_trace(self._current_source().previous_trace())
+
+    def next_event(self) -> dict[str, Any]:
+        source = self._current_source()
+        if not isinstance(source, DirectTraceSource):
+            raise LookupError("event navigation is only available for direct event review")
+        return self._serialize_source_trace(source.next_event())
+
+    def previous_event(self) -> dict[str, Any]:
+        source = self._current_source()
+        if not isinstance(source, DirectTraceSource):
+            raise LookupError("event navigation is only available for direct event review")
+        return self._serialize_source_trace(source.previous_event())
 
     def assign_label(
         self,
@@ -350,22 +396,37 @@ class EstimatorService:
             raise ValueError(f"default run {run} is not available")
         return run
 
-    def _current_source(self) -> TraceSource:
+    def _current_source(self) -> TraceSource | DirectTraceSource:
         if self._active_source_key is None:
             raise LookupError("no active trace source is available")
         return self._get_or_create_source(self._active_source_key)
 
     def _serialize_source_trace(self, record) -> dict[str, Any]:
+        if self.session.source == "event_trace":
+            self.session.event_id = int(record.event_id)
+            self.session.trace_id = int(record.trace_id)
         label = self.repository.get_label(record.run, record.event_id, record.trace_id)
+        source = self._current_source()
+        event_trace_count = (
+            source.current_event_trace_count()
+            if isinstance(source, DirectTraceSource)
+            else None
+        )
+        event_id_range = source.event_id_range() if isinstance(source, DirectTraceSource) else None
         return serialize_trace_payload(
             record,
             bitflip_baseline_threshold=self.bitflip_baseline_threshold,
             label=label,
-            review_progress=self._current_source().get_progress(),
+            review_progress=source.get_progress(),
             include_run=True,
+            event_trace_count=event_trace_count,
+            event_id_range=event_id_range,
         )
 
-    def _get_or_create_source(self, key: tuple[Any, ...]) -> TraceSource:
+    def _get_or_create_source(
+        self,
+        key: tuple[Any, ...],
+    ) -> TraceSource | DirectTraceSource:
         source = self._sources.get(key)
         labels = self._labels_snapshot()
         if source is None:
@@ -379,7 +440,7 @@ class EstimatorService:
         self,
         key: tuple[Any, ...],
         labels: dict[TraceRef, StoredLabel],
-    ) -> TraceSource:
+    ) -> TraceSource | DirectTraceSource:
         if key[0] == "label":
             run = int(key[1])
             return TraceSource.for_label_mode(
@@ -414,6 +475,14 @@ class EstimatorService:
                 baseline_window_scale=self.baseline_window_scale,
                 verbose=self.verbose,
             )
+        if key[0] == "review" and key[1] == "event_trace":
+            run = int(key[2])
+            return DirectTraceSource(
+                self.run_files[run],
+                run=run,
+                labels=labels,
+                baseline_window_scale=self.baseline_window_scale,
+            )
         raise ValueError(f"unsupported source key: {key!r}")
 
     def _labels_snapshot(self) -> dict[TraceRef, StoredLabel]:
@@ -422,6 +491,14 @@ class EstimatorService:
     def _debug(self, message: str, *args: object) -> None:
         if self.verbose:
             logger.debug(message, *args)
+
+    def _collect_run_event_ranges(self) -> dict[int, tuple[int, int]]:
+        ranges: dict[int, tuple[int, int]] = {}
+        for run, path in self.run_files.items():
+            with h5py.File(path, "r") as handle:
+                metadata = describe_trace_events(handle)
+            ranges[int(run)] = (metadata.min_event, metadata.max_event)
+        return ranges
 
     @staticmethod
     def _is_labeled_review_source(key: tuple[Any, ...], *, run: int) -> bool:

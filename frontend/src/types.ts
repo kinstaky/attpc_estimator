@@ -1,10 +1,17 @@
 export interface SessionPayload {
   mode: "label" | "review";
   run: number | null;
-  source?: "label_set" | "filter_file" | null;
+  source?: "label_set" | "filter_file" | "event_trace" | null;
   family?: "normal" | "strange" | null;
   label?: string | null;
   filterFile?: string | null;
+  eventId?: number | null;
+  traceId?: number | null;
+}
+
+export interface EventIdRange {
+  min: number;
+  max: number;
 }
 
 export interface StrangeLabel {
@@ -56,6 +63,8 @@ export interface TracePayload {
   bitflipAnalysis: BitflipAnalysis;
   currentLabel: CurrentLabel | null;
   reviewProgress: ReviewProgress | null;
+  eventTraceCount: number | null;
+  eventIdRange: EventIdRange | null;
 }
 
 export interface FilterFileItem {
@@ -83,6 +92,7 @@ export interface BootstrapPayload {
   tracePath: string;
   databaseFile: string;
   runs: number[];
+  eventRanges: Record<string, EventIdRange>;
   filterFiles: FilterFileItem[];
   histogramAvailability: Record<
     string,

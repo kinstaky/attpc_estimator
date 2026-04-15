@@ -1,15 +1,18 @@
 import { reactive } from "vue";
 
 import {
+  nextEvent,
   nextTrace,
+  previousEvent,
   previousTrace,
+  setEventTraceReviewSession,
   setFilterReviewSession,
   setLabelReviewSession,
 } from "../api";
 import { useShellStore } from "./shell";
 import type { TracePayload } from "../types";
 
-type ReviewSource = "label_set" | "filter_file";
+type ReviewSource = "label_set" | "filter_file" | "event_trace";
 type ReviewFamily = "normal" | "strange";
 type VisualMode = "raw" | "cdf" | "curvature";
 
@@ -19,6 +22,8 @@ interface ReviewState {
   family: ReviewFamily;
   label: string;
   filterFile: string;
+  eventId: number | null;
+  traceId: number | null;
   currentTrace: TracePayload | null;
   visualMode: VisualMode;
   loading: boolean;
@@ -32,6 +37,8 @@ const state = reactive<ReviewState>({
   family: "normal",
   label: "",
   filterFile: "",
+  eventId: null,
+  traceId: 0,
   currentTrace: null,
   visualMode: "cdf",
   loading: false,
@@ -52,18 +59,42 @@ function ensureDefaults(): void {
   if (!state.filterFile) {
     state.filterFile = shell.state.bootstrap?.filterFiles?.[0]?.name || "";
   }
+  ensureDirectSourceDefaults();
+}
+
+function ensureDirectSourceDefaults(): void {
+  const shell = useShellStore();
+  if (state.run === null) {
+    return;
+  }
+  const eventRange = shell.state.bootstrap?.eventRanges?.[String(state.run)];
+  if (!eventRange) {
+    return;
+  }
+  if (
+    state.eventId === null
+    || state.eventId < eventRange.min
+    || state.eventId > eventRange.max
+  ) {
+    state.eventId = eventRange.min;
+  }
+  if (state.traceId === null || state.traceId < 0) {
+    state.traceId = 0;
+  }
 }
 
 function setSource(source: ReviewSource): void {
   state.source = source;
   state.currentTrace = null;
   clearTransientUi();
+  ensureDefaults();
 }
 
 function setRun(run: number | string | null): void {
   const shell = useShellStore();
   state.run = run === null || run === "" ? null : Number(run);
   shell.setSelectedRun(state.run);
+  ensureDirectSourceDefaults();
 }
 
 function setFamily(family: ReviewFamily): void {
@@ -77,6 +108,22 @@ function setLabel(label: string): void {
 
 function setFilterFile(filterFile: string): void {
   state.filterFile = filterFile || "";
+}
+
+function setEventId(eventId: number | string | null): void {
+  if (eventId === null || eventId === "") {
+    state.eventId = null;
+    return;
+  }
+  state.eventId = Number(eventId);
+}
+
+function setTraceId(traceId: number | string | null): void {
+  if (traceId === null || traceId === "") {
+    state.traceId = null;
+    return;
+  }
+  state.traceId = Number(traceId);
 }
 
 function setVisualMode(mode: VisualMode): void {
@@ -97,7 +144,12 @@ function toggleVisualMode(): void {
 
 function applyQuery(query: Record<string, unknown>): void {
   ensureDefaults();
-  const source = query.source === "filter_file" ? "filter_file" : "label_set";
+  const source =
+    query.source === "filter_file"
+      ? "filter_file"
+      : query.source === "event_trace"
+        ? "event_trace"
+        : "label_set";
   state.source = source;
   if (source === "label_set") {
     if (query.run !== undefined) {
@@ -105,6 +157,19 @@ function applyQuery(query: Record<string, unknown>): void {
     }
     state.family = query.family === "strange" ? "strange" : "normal";
     state.label = typeof query.label === "string" ? query.label : "";
+    return;
+  }
+  if (source === "event_trace") {
+    if (query.run !== undefined) {
+      setRun(Number(query.run));
+    }
+    if (query.eventId !== undefined) {
+      setEventId(Number(query.eventId));
+    }
+    if (query.traceId !== undefined) {
+      setTraceId(Number(query.traceId));
+    }
+    ensureDirectSourceDefaults();
     return;
   }
   state.filterFile =
@@ -118,6 +183,14 @@ function buildQuery(): Record<string, string | number | undefined> {
       run: state.run ?? undefined,
       family: state.family,
       label: state.label || undefined,
+    };
+  }
+  if (state.source === "event_trace") {
+    return {
+      source: "event_trace",
+      run: state.run ?? undefined,
+      eventId: state.eventId ?? undefined,
+      traceId: state.traceId ?? undefined,
     };
   }
   return {
@@ -141,6 +214,15 @@ async function loadReviewSet(): Promise<void> {
         state.family,
         state.label || null,
       );
+    } else if (state.source === "event_trace") {
+      if (state.run === null || state.eventId === null || state.traceId === null) {
+        throw new Error("Select a run, event id, and trace id before loading review.");
+      }
+      payload = await setEventTraceReviewSession(
+        state.run,
+        state.eventId,
+        state.traceId,
+      );
     } else {
       if (!state.filterFile) {
         throw new Error("Select a filter file before loading review.");
@@ -148,6 +230,7 @@ async function loadReviewSet(): Promise<void> {
       payload = await setFilterReviewSession(state.filterFile);
     }
     state.currentTrace = payload.trace ?? null;
+    syncDirectSelectionFromTrace(state.currentTrace);
     if (!payload.trace) {
       state.statusMessage = "The selected review set does not contain any traces.";
     }
@@ -165,6 +248,7 @@ async function nextReviewTrace(): Promise<void> {
   clearTransientUi();
   try {
     state.currentTrace = await nextTrace();
+    syncDirectSelectionFromTrace(state.currentTrace);
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
   } finally {
@@ -177,11 +261,47 @@ async function previousReviewTrace(): Promise<void> {
   clearTransientUi();
   try {
     state.currentTrace = await previousTrace();
+    syncDirectSelectionFromTrace(state.currentTrace);
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
   } finally {
     state.loading = false;
   }
+}
+
+async function nextReviewEvent(): Promise<void> {
+  state.loading = true;
+  clearTransientUi();
+  try {
+    state.currentTrace = await nextEvent();
+    syncDirectSelectionFromTrace(state.currentTrace);
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function previousReviewEvent(): Promise<void> {
+  state.loading = true;
+  clearTransientUi();
+  try {
+    state.currentTrace = await previousEvent();
+    syncDirectSelectionFromTrace(state.currentTrace);
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.loading = false;
+  }
+}
+
+function syncDirectSelectionFromTrace(trace: TracePayload | null): void {
+  if (!trace || state.source !== "event_trace") {
+    return;
+  }
+  state.run = trace.run ?? state.run;
+  state.eventId = trace.eventId;
+  state.traceId = trace.traceId;
 }
 
 export function useReviewStore() {
@@ -193,6 +313,8 @@ export function useReviewStore() {
     setFamily,
     setLabel,
     setFilterFile,
+    setEventId,
+    setTraceId,
     setVisualMode,
     toggleVisualMode,
     applyQuery,
@@ -200,5 +322,7 @@ export function useReviewStore() {
     loadReviewSet,
     nextReviewTrace,
     previousReviewTrace,
+    nextReviewEvent,
+    previousReviewEvent,
   };
 }

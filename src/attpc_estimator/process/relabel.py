@@ -201,6 +201,32 @@ def print_ratio(name: str, ratio: tuple[int, int]) -> None:
     print(f"{name}: {numerator}/{denominator} = {numerator / denominator:.6f}")
 
 
+def confused_trace_key_sections_for_label(
+    label: str,
+    rows: np.ndarray,
+) -> list[tuple[str, list[tuple[int, int, int]]]]:
+    target_label_key = _target_label_key(label)
+    return [
+        (
+            f"old {target_label_key} -> not {target_label_key}",
+            _matching_trace_keys(
+                rows,
+                old_label=target_label_key,
+                new_label=target_label_key,
+                negate_new_label=True,
+            ),
+        ),
+        (
+            f"old {ONE_PEAK_LABEL_KEY} -> new {target_label_key}",
+            _matching_trace_keys(
+                rows,
+                old_label=ONE_PEAK_LABEL_KEY,
+                new_label=target_label_key,
+            ),
+        ),
+    ]
+
+
 def _relabel_noise(old_label: str, amplitude: float) -> str:
     if amplitude < ZERO_PEAK_AMPLITUDE_CUTOFF:
         return ZERO_PEAK_LABEL_KEY
@@ -221,6 +247,40 @@ def _relabel_saturation(
     if plateau_length >= min_plateau_length:
         return SATURATION_LABEL_KEY
     return old_label
+
+
+def _target_label_key(label: str) -> str:
+    if label == NOISE_RELABEL:
+        return ZERO_PEAK_LABEL_KEY
+    if label == OSCILLATION_RELABEL:
+        return OSCILLATION_LABEL_KEY
+    if label == SATURATION_RELABEL:
+        return SATURATION_LABEL_KEY
+    raise ValueError(f"unsupported relabel label: {label}")
+
+
+def _matching_trace_keys(
+    rows: np.ndarray,
+    *,
+    old_label: str,
+    new_label: str,
+    negate_new_label: bool = False,
+) -> list[tuple[int, int, int]]:
+    trace_keys: list[tuple[int, int, int]] = []
+    for row in rows:
+        row_old_label = str(row["old_label"])
+        row_new_label = str(row["new_label"])
+        if row_old_label != old_label:
+            continue
+        if negate_new_label:
+            if row_new_label == new_label:
+                continue
+        elif row_new_label != new_label:
+            continue
+        trace_keys.append(
+            (int(row["run"]), int(row["event_id"]), int(row["trace_id"]))
+        )
+    return trace_keys
 
 
 def _build_structured_rows(
