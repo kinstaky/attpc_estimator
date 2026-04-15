@@ -91,16 +91,20 @@ class DummyMergedService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
     ) -> dict:
-        return {
+        payload = {
             "metric": metric,
             "mode": mode,
             "run": run,
             "filterFile": filter_file,
             "veto": veto,
         }
+        if variant is not None:
+            payload["variant"] = variant
+        return payload
 
     def create_histogram_job(
         self,
@@ -108,6 +112,7 @@ class DummyMergedService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
     ) -> dict:
@@ -166,13 +171,14 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
 
         histogram = client.get(
             "/api/histograms",
-            params={"metric": "cdf", "mode": "all", "run": 8},
+            params={"metric": "bitflip", "variant": "value", "mode": "all", "run": 8},
         )
         assert histogram.status_code == 200
         assert histogram.json() == {
-            "metric": "cdf",
+            "metric": "bitflip",
             "mode": "all",
             "run": 8,
+            "variant": "value",
             "filterFile": None,
             "veto": False,
         }
@@ -180,7 +186,8 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         histogram_job = client.post(
             "/api/histograms/jobs",
             json={
-                "metric": "cdf",
+                "metric": "bitflip",
+                "variant": "length",
                 "mode": "filtered",
                 "run": 8,
                 "filterFile": "filter.npy",

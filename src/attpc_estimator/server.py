@@ -37,6 +37,7 @@ class HistogramJobRequest(BaseModel):
     metric: str
     mode: str
     run: int
+    variant: str | None = None
     filterFile: str | None = None
     veto: bool = False
 
@@ -124,6 +125,7 @@ def build_api_router(service: EstimatorService) -> APIRouter:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filterFile: str | None = None,
         veto: bool = False,
     ) -> dict:
@@ -132,6 +134,7 @@ def build_api_router(service: EstimatorService) -> APIRouter:
                 metric=metric,
                 mode=mode,
                 run=run,
+                variant=variant,
                 filter_file=filterFile,
                 veto=veto,
             )
@@ -147,6 +150,7 @@ def build_api_router(service: EstimatorService) -> APIRouter:
                 metric=request.metric,
                 mode=request.mode,
                 run=request.run,
+                variant=request.variant,
                 filter_file=request.filterFile,
                 veto=request.veto,
             )

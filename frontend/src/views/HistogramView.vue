@@ -5,7 +5,7 @@
         <p class="page-kicker">Histograms</p>
         <h1>Accumulated trace histograms</h1>
         <p class="page-copy">
-          Compare all-trace, labeled, and filtered distributions for CDF and amplitude metrics.
+          Compare all-trace, labeled, and filtered distributions for the available signal metrics.
         </p>
       </div>
     </div>
@@ -33,6 +33,21 @@
               :model-value="store.state.selectedMetric"
               variant="outlined"
               @update:model-value="store.setSelectedMetric"
+            />
+          </v-col>
+          <v-col
+            v-if="variantOptions.length"
+            cols="12"
+            md="4"
+          >
+            <v-select
+              :items="variantOptions"
+              item-title="title"
+              item-value="value"
+              label="Variant"
+              :model-value="selectedVariant"
+              variant="outlined"
+              @update:model-value="onVariantChange"
             />
           </v-col>
           <v-col cols="12" md="4">
@@ -207,6 +222,10 @@
               :thresholds="store.state.histogram.thresholds || []"
               :value-bin-count="store.state.histogram.valueBinCount || 0"
               :bin-count="store.state.histogram.binCount || 0"
+              :bin-centers="store.state.histogram.binCenters || []"
+              :variant="store.state.histogram.variant || ''"
+              :bin-label="store.state.histogram.binLabel || ''"
+              :count-label="store.state.histogram.countLabel || ''"
               :scale-mode="store.scaleMode.value"
               :cdf-render-mode="store.state.cdfRenderMode"
               :cdf-projection-bin="store.state.cdfProjectionBin"
@@ -231,7 +250,7 @@ import { computed, onMounted, ref } from "vue";
 import ResultPlot from "../components/ResultPlot.vue";
 import { useHistogramStore } from "../stores/histograms";
 import { useShellStore } from "../stores/shell";
-import type { HistogramAvailabilityEntry } from "../types";
+import type { HistogramAvailabilityEntry, HistogramMetric, HistogramVariant } from "../types";
 
 const shell = useShellStore();
 const store = useHistogramStore();
@@ -253,13 +272,44 @@ const filterFileOptions = computed(() =>
 );
 
 const metricOptions = [
-  { title: "CDF", value: "cdf" },
   { title: "Amplitude", value: "amplitude" },
+  { title: "Baseline", value: "baseline" },
+  { title: "Bitflip", value: "bitflip" },
+  { title: "CDF", value: "cdf" },
+  { title: "Saturation", value: "saturation" },
 ];
+
+const selectedVariant = computed(() => {
+  if (store.state.selectedMetric === "bitflip") {
+    return store.state.selectedBitflipVariant;
+  }
+  if (store.state.selectedMetric === "saturation") {
+    return store.state.selectedSaturationVariant;
+  }
+  return "";
+});
+
+const variantOptions = computed(() => {
+  if (store.state.selectedMetric === "bitflip") {
+    return [
+      { title: "Baseline", value: "baseline" },
+      { title: "Value", value: "value" },
+      { title: "Length", value: "length" },
+      { title: "Count", value: "count" },
+    ];
+  }
+  if (store.state.selectedMetric === "saturation") {
+    return [
+      { title: "Drop", value: "drop" },
+      { title: "Plateau length", value: "length" },
+    ];
+  }
+  return [];
+});
 
 const modeOptions = computed(() => {
   const availability = store.getAvailability() as
-    | Record<"cdf" | "amplitude", HistogramAvailabilityEntry>
+    | Record<HistogramMetric, HistogramAvailabilityEntry>
     | null;
   const metricAvailability = availability?.[store.state.selectedMetric];
   return [
@@ -281,6 +331,9 @@ const cdfRenderOptions = [
 
 const scaleLabel = computed(() => {
   if (store.state.selectedMetric === "amplitude") {
+    return "Y scale";
+  }
+  if (store.state.selectedMetric !== "cdf") {
     return "Y scale";
   }
   return store.state.cdfRenderMode === "projection" ? "Y scale" : "Z scale";
@@ -327,6 +380,10 @@ function onDrop(labelKey: string): void {
 function clearDragState(): void {
   draggedSeriesKey.value = null;
   dropTargetKey.value = null;
+}
+
+function onVariantChange(value: string): void {
+  void store.setSelectedVariant(value as HistogramVariant);
 }
 
 onMounted(() => {

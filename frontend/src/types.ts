@@ -34,6 +34,18 @@ export interface CurrentLabel {
   label: string;
 }
 
+export interface BitflipAnalysis {
+  xIndices: number[];
+  firstDerivative: number[];
+  secondDerivative: number[];
+  structures: BitflipStructure[];
+}
+
+export interface BitflipStructure {
+  startBaselineIndex: number;
+  endBaselineIndex: number;
+}
+
 export interface TracePayload {
   run?: number;
   eventId: number;
@@ -41,6 +53,7 @@ export interface TracePayload {
   raw: number[];
   trace: number[];
   transformed: number[];
+  bitflipAnalysis: BitflipAnalysis;
   currentLabel: CurrentLabel | null;
   reviewProgress: ReviewProgress | null;
 }
@@ -55,6 +68,15 @@ export interface HistogramAvailabilityEntry {
   filtered: boolean;
 }
 
+export type HistogramMetric = "cdf" | "amplitude" | "baseline" | "bitflip" | "saturation";
+export type HistogramMode = "all" | "labeled" | "filtered";
+export type HistogramVariant =
+  | "baseline"
+  | "value"
+  | "drop"
+  | "length"
+  | "count";
+
 export interface BootstrapPayload {
   appType: "merged";
   workspace: string;
@@ -64,7 +86,7 @@ export interface BootstrapPayload {
   filterFiles: FilterFileItem[];
   histogramAvailability: Record<
     string,
-    Record<"cdf" | "amplitude", HistogramAvailabilityEntry>
+    Record<HistogramMetric, HistogramAvailabilityEntry>
   >;
   normalSummary: NormalSummaryItem[];
   strangeSummary: StrangeSummaryItem[];
@@ -80,14 +102,18 @@ export interface HistogramSeries {
 }
 
 export interface HistogramPayload {
-  metric: "cdf" | "amplitude";
-  mode: "all" | "labeled" | "filtered";
+  metric: HistogramMetric;
+  mode: HistogramMode;
   run: number;
+  variant?: HistogramVariant | null;
   filterFile?: string | null;
   veto?: boolean;
   thresholds?: number[];
   valueBinCount?: number;
   binCount?: number;
+  binCenters?: number[];
+  binLabel?: string;
+  countLabel?: string;
   series: HistogramSeries[];
 }
 

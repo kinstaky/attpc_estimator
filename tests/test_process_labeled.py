@@ -149,6 +149,8 @@ def test_cdf_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) 
                 f'trace_path = "{trace_root}"',
                 f'workspace = "{workspace}"',
                 'run = "0008"',
+                "",
+                "[cdf]",
                 "labeled = true",
                 "baseline_window_scale = 12.5",
             ]

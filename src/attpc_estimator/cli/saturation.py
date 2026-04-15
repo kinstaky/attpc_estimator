@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from ..process.amplitude import (
-    build_amplitude_histogram,
-    build_labeled_amplitude_histograms,
+from ..process.saturation import (
+    build_labeled_saturation_histograms,
+    build_saturation_histograms,
 )
 from ..storage.run_paths import format_run_id, resolve_run_file
 from .config import parse_run, parse_toml_config, root_config_values, table_config_values
@@ -25,17 +25,17 @@ def main() -> None:
 
     if args.labeled:
         with tqdm_reporter("Processing labeled pad traces") as progress:
-            payload = build_labeled_amplitude_histograms(
+            payload = build_labeled_saturation_histograms(
                 trace_path=trace_root,
                 workspace=workspace,
                 run=run_id,
                 baseline_window_scale=args.baseline_window_scale,
-                peak_separation=args.peak_separation,
-                peak_prominence=args.peak_prominence,
-                peak_width=args.peak_width,
+                threshold=args.threshold,
+                drop_threshold=args.drop_threshold,
+                window_radius=args.window_radius,
                 progress=progress,
             )
-        output_path = workspace / f"run_{run_name}_labeled_amp.npz"
+        output_path = workspace / f"run_{run_name}_labeled_saturation.npz"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             output_path,
@@ -43,9 +43,10 @@ def main() -> None:
             label_keys=payload["label_keys"],
             label_titles=payload["label_titles"],
             trace_counts=payload["trace_counts"],
-            histograms=payload["histograms"],
+            drop_histograms=payload["drop_histograms"],
+            length_histograms=payload["length_histograms"],
         )
-        print(f"saved labeled amplitude histograms to {output_path}")
+        print(f"saved labeled saturation histograms to {output_path}")
         print(f"labels: {payload['label_keys'].tolist()}")
         print(f"trace counts: {payload['trace_counts'].tolist()}")
         return
@@ -56,20 +57,24 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
 
     with tqdm_reporter("Processing pad traces") as progress:
-        histogram = build_amplitude_histogram(
+        payload = build_saturation_histograms(
             trace_file_path=trace_file_path,
             baseline_window_scale=args.baseline_window_scale,
-            peak_separation=args.peak_separation,
-            peak_prominence=args.peak_prominence,
-            peak_width=args.peak_width,
+            threshold=args.threshold,
+            drop_threshold=args.drop_threshold,
+            window_radius=args.window_radius,
             progress=progress,
         )
-    output_path = workspace / f"run_{run_name}_amp.npy"
+    output_path = workspace / f"run_{run_name}_saturation.npz"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(output_path, histogram)
-
-    print(f"saved amplitude histogram with shape {histogram.shape} to {output_path}")
-    print(f"total histogram count: {int(histogram.sum())}")
+    np.savez(
+        output_path,
+        trace_count=payload["trace_count"],
+        drop_histogram=payload["drop_histogram"],
+        length_histogram=payload["length_histogram"],
+    )
+    print(f"saved saturation histograms to {output_path}")
+    print(f"trace count: {int(payload['trace_count'])}")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -78,23 +83,23 @@ def _parse_args() -> argparse.Namespace:
         payload,
         allowed_keys={"trace_path", "run", "workspace"},
     )
+    saturation_config = table_config_values(
+        payload,
+        table="saturation",
+        allowed_keys={
+            "threshold",
+            "drop_threshold",
+            "window_radius",
+            "min_plateau_length",
+        },
+    )
     baseline_config = table_config_values(
         payload,
         table="baseline",
         allowed_keys={"fft_window_scale"},
     )
-    amplitude_config = table_config_values(
-        payload,
-        table="amplitude",
-        allowed_keys={
-            "peak_separation",
-            "peak_prominence",
-            "peak_width",
-            "labeled",
-        },
-    )
     parser = argparse.ArgumentParser(
-        description="Compute peak-amplitude histograms for all traces or labeled traces",
+        description="Compute saturation plateau histograms for all traces or labeled traces",
     )
     parser.add_argument(
         "-c",
@@ -129,30 +134,31 @@ def _parse_args() -> argparse.Namespace:
         "--baseline-window-scale",
         type=float,
         default=baseline_config.get("fft_window_scale", 10.0),
-        help="Baseline-removal filter scale used before taking the FFT",
+        help="Baseline-removal filter scale used before saturation analysis",
     )
     parser.add_argument(
-        "--peak-separation",
+        "--threshold",
         type=float,
-        default=amplitude_config.get("peak_separation", 50.0),
-        help="Minimum separation between peaks",
+        default=saturation_config.get("threshold", 2000.0),
+        help="Minimum trace maximum required before evaluating a saturation plateau",
     )
     parser.add_argument(
-        "--peak-prominence",
+        "--drop-threshold",
         type=float,
-        default=amplitude_config.get("peak_prominence", 20.0),
-        help="Prominence of peaks",
+        required="drop_threshold" not in saturation_config,
+        default=saturation_config.get("drop_threshold"),
+        help="Drop threshold D used when measuring plateau length",
     )
     parser.add_argument(
-        "--peak-width",
-        type=float,
-        default=amplitude_config.get("peak_width", 50.0),
-        help="Maximum width of peaks",
+        "--window-radius",
+        type=int,
+        default=saturation_config.get("window_radius", 16),
+        help="Radius of the local window used when accumulating drop-from-maximum statistics",
     )
     parser.add_argument(
         "--labeled",
         action="store_true",
-        default=bool(amplitude_config.get("labeled", False)),
+        default=False,
         help="Process only labeled traces for the selected run and save one histogram per label",
     )
     return parser.parse_args()

@@ -6,6 +6,7 @@ import numpy as np
 from scipy import signal
 
 from .progress import ProgressReporter
+from .trace_metrics import compute_peak_amplitudes
 from ..process.labeled import (
     NORMAL_LABEL_GROUPS,
     load_grouped_labeled_run,
@@ -106,16 +107,13 @@ def max_peak_amplitude(
     peak_prominence: float,
     peak_width: float,
 ) -> float:
-    peaks, _ = signal.find_peaks(
-        row,
-        distance=peak_separation,
-        prominence=peak_prominence,
-        width=(1.0, peak_width),
-        rel_height=0.95,
+    amplitudes = compute_peak_amplitudes(
+        np.asarray([row]),
+        peak_separation=peak_separation,
+        peak_prominence=peak_prominence,
+        peak_width=peak_width,
     )
-    if peaks.size == 0:
-        return 0.0
-    return float(np.max(row[peaks]))
+    return float(amplitudes[0])
 
 
 def _accumulate_peak_histogram(

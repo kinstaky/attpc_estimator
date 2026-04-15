@@ -17,7 +17,7 @@ import type {
 } from "../types";
 
 type LabelMode = "browse" | "await_normal_peak" | "await_strange_choice";
-type VisualMode = "raw" | "analysis";
+type VisualMode = "raw" | "cdf" | "curvature";
 
 interface LabelState {
   currentTrace: TracePayload | null;
@@ -60,14 +60,19 @@ function cancelSelectionMode(): void {
 }
 
 function setVisualMode(mode: VisualMode): void {
-  if (mode !== "raw" && mode !== "analysis") {
+  if (mode !== "raw" && mode !== "cdf" && mode !== "curvature") {
     return;
   }
   state.visualMode = mode;
 }
 
 function toggleVisualMode(): void {
-  state.visualMode = state.visualMode === "raw" ? "analysis" : "raw";
+  state.visualMode =
+    state.visualMode === "raw"
+      ? "cdf"
+      : state.visualMode === "cdf"
+        ? "curvature"
+        : "raw";
 }
 
 async function enterLabelMode(run: number | null | undefined): Promise<void> {

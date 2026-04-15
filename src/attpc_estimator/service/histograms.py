@@ -8,9 +8,30 @@ from typing import Any
 import h5py
 import numpy as np
 
-from ..process.progress import ProgressReporter, emit_progress
 from ..process.amplitude import AMPLITUDE_BIN_COUNT, _accumulate_peak_histogram
+from ..process.baseline import (
+    BASELINE_BIN_CENTERS,
+    BASELINE_BIN_COUNT,
+    BASELINE_BIN_LABEL,
+    BASELINE_COUNT_LABEL,
+    accumulate_baseline_histogram,
+)
 from ..process.cdf import _accumulate_cdf_histogram_numba
+from ..process.bitflip import (
+    BITFLIP_BASELINE_DEFAULT,
+    BITFLIP_BIN_COUNTS,
+    BITFLIP_BIN_LABELS,
+    BITFLIP_COUNT_LABELS,
+    BITFLIP_VARIANTS,
+    accumulate_bitflip_histograms,
+)
+from ..process.progress import ProgressReporter, emit_progress
+from ..process.saturation import (
+    SATURATION_BIN_COUNTS,
+    SATURATION_BIN_LABELS,
+    SATURATION_VARIANTS,
+    accumulate_saturation_histograms,
+)
 from ..storage.run_paths import collect_run_files
 from ..utils.label_keys import label_title_from_key
 from ..utils.trace_data import (
@@ -24,21 +45,115 @@ from ..utils.trace_data import (
 )
 from .histogram_jobs import HistogramJobManager
 
+SUPPORTED_METRICS = ("cdf", "amplitude", "baseline", "bitflip", "saturation")
+DEFAULT_VARIANTS = {
+    "bitflip": "baseline",
+    "saturation": "drop",
+}
+METRIC_VARIANTS = {
+    "bitflip": BITFLIP_VARIANTS,
+    "saturation": SATURATION_VARIANTS,
+}
 ARTIFACT_SUFFIXES = {
     ("cdf", "all"): ("_cdf.npy",),
     ("cdf", "labeled"): ("_labeled_cdf.npz", "_labeled_cdf.npy"),
     ("amplitude", "all"): ("_amp.npy",),
     ("amplitude", "labeled"): ("_labeled_amp.npz", "_labeled_amp.npy"),
+    ("baseline", "all"): ("_baseline.npz",),
+    ("baseline", "labeled"): ("_labeled_baseline.npz",),
+    ("bitflip", "all"): ("_bitflip.npz",),
+    ("bitflip", "labeled"): ("_labeled_bitflip.npz",),
+    ("saturation", "all"): ("_saturation.npz",),
+    ("saturation", "labeled"): ("_labeled_saturation.npz",),
+}
+ONE_D_METRIC_METADATA = {
+    "amplitude": {
+        None: {
+            "bin_count": AMPLITUDE_BIN_COUNT,
+            "bin_label": "Amplitude",
+            "count_label": "Peak count",
+            "all_key": None,
+            "labeled_key": "histograms",
+        }
+    },
+    "baseline": {
+        None: {
+            "bin_count": BASELINE_BIN_COUNT,
+            "bin_label": BASELINE_BIN_LABEL,
+            "count_label": BASELINE_COUNT_LABEL,
+            "all_key": "histogram",
+            "labeled_key": "histograms",
+            "bin_centers": BASELINE_BIN_CENTERS.tolist(),
+        }
+    },
+    "bitflip": {
+        "baseline": {
+            "bin_count": BITFLIP_BIN_COUNTS["baseline"],
+            "bin_label": BITFLIP_BIN_LABELS["baseline"],
+            "count_label": BITFLIP_COUNT_LABELS["baseline"],
+            "all_key": "baseline_histogram",
+            "labeled_key": "baseline_histograms",
+            "bin_centers": BASELINE_BIN_CENTERS.tolist(),
+        },
+        "value": {
+            "bin_count": BITFLIP_BIN_COUNTS["value"],
+            "bin_label": BITFLIP_BIN_LABELS["value"],
+            "count_label": BITFLIP_COUNT_LABELS["value"],
+            "all_key": "value_histogram",
+            "labeled_key": "value_histograms",
+        },
+        "length": {
+            "bin_count": BITFLIP_BIN_COUNTS["length"],
+            "bin_label": BITFLIP_BIN_LABELS["length"],
+            "count_label": BITFLIP_COUNT_LABELS["length"],
+            "all_key": "length_histogram",
+            "labeled_key": "length_histograms",
+        },
+        "count": {
+            "bin_count": BITFLIP_BIN_COUNTS["count"],
+            "bin_label": BITFLIP_BIN_LABELS["count"],
+            "count_label": BITFLIP_COUNT_LABELS["count"],
+            "all_key": "count_histogram",
+            "labeled_key": "count_histograms",
+        },
+    },
+    "saturation": {
+        "drop": {
+            "bin_count": SATURATION_BIN_COUNTS["drop"],
+            "bin_label": SATURATION_BIN_LABELS["drop"],
+            "count_label": "Count",
+            "all_key": "drop_histogram",
+            "labeled_key": "drop_histograms",
+        },
+        "length": {
+            "bin_count": SATURATION_BIN_COUNTS["length"],
+            "bin_label": SATURATION_BIN_LABELS["length"],
+            "count_label": "Trace count",
+            "all_key": "length_histogram",
+            "labeled_key": "length_histograms",
+        },
+    },
 }
 
 
 class HistogramService:
     def __init__(
-        self, trace_path: Path, workspace: Path, baseline_window_scale: float = 10.0
+        self,
+        trace_path: Path,
+        workspace: Path,
+        baseline_window_scale: float = 10.0,
+        bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
+        saturation_threshold: float = 2000.0,
+        saturation_drop_threshold: float = 10.0,
+        saturation_window_radius: int = 16,
     ) -> None:
         self.trace_path = trace_path
         self.workspace = workspace
         self.baseline_window_scale = baseline_window_scale
+        self.bitflip_baseline_threshold = bitflip_baseline_threshold
+        self.saturation_threshold = saturation_threshold
+        self.saturation_drop_threshold = saturation_drop_threshold
+        self.saturation_window_radius = saturation_window_radius
         self.run_files = collect_run_files(trace_path)
         self.jobs = HistogramJobManager()
 
@@ -59,7 +174,7 @@ class HistogramService:
                         )
                         for mode in ("all", "labeled", "filtered")
                     }
-                    for metric in ("cdf", "amplitude")
+                    for metric in SUPPORTED_METRICS
                 }
                 for run_id in run_ids
             },
@@ -71,20 +186,23 @@ class HistogramService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
         progress: ProgressReporter | None = None,
     ) -> dict[str, Any]:
-        self._validate_histogram_request(
+        resolved_variant = self._validate_histogram_request(
             metric=metric,
             mode=mode,
             run=run,
+            variant=variant,
             filter_file=filter_file,
         )
         resolved_veto = veto if mode == "filtered" else False
         if mode == "filtered":
             return self._build_filtered_histogram(
                 metric=metric,
+                variant=resolved_variant,
                 run=run,
                 filter_file=filter_file,
                 veto=resolved_veto,
@@ -105,7 +223,16 @@ class HistogramService:
                 payload=payload,
                 veto=resolved_veto,
             )
-        return self._normalize_amplitude_payload(
+        if metric == "amplitude":
+            return self._normalize_amplitude_payload(
+                run=run,
+                mode=mode,
+                payload=payload,
+                veto=resolved_veto,
+            )
+        return self._normalize_generic_1d_payload(
+            metric=metric,
+            variant=resolved_variant,
             run=run,
             mode=mode,
             payload=payload,
@@ -118,15 +245,17 @@ class HistogramService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
     ) -> str:
         if mode != "filtered":
             raise ValueError("histogram jobs are only available for filtered mode")
-        self._validate_histogram_request(
+        resolved_variant = self._validate_histogram_request(
             metric=metric,
             mode=mode,
             run=run,
+            variant=variant,
             filter_file=filter_file,
         )
         return self.jobs.create_job(
@@ -134,6 +263,7 @@ class HistogramService:
                 metric=metric,
                 mode=mode,
                 run=run,
+                variant=resolved_variant,
                 filter_file=filter_file,
                 veto=veto,
                 progress=progress,
@@ -156,16 +286,34 @@ class HistogramService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None,
         filter_file: str | None,
-    ) -> None:
-        if metric not in {"cdf", "amplitude"}:
-            raise ValueError("metric must be 'cdf' or 'amplitude'")
+    ) -> str | None:
+        if metric not in SUPPORTED_METRICS:
+            raise ValueError(
+                "metric must be 'cdf', 'amplitude', 'baseline', 'bitflip', or 'saturation'"
+            )
         if mode not in {"all", "labeled", "filtered"}:
             raise ValueError("mode must be 'all', 'labeled', or 'filtered'")
         if run not in self.run_files:
             raise ValueError(f"run {run} is not available")
         if mode == "filtered":
             self._filter_path(filter_file)
+        return self._resolve_variant(metric=metric, variant=variant)
+
+    def _resolve_variant(self, *, metric: str, variant: str | None) -> str | None:
+        allowed_variants = METRIC_VARIANTS.get(metric)
+        if allowed_variants is None:
+            if variant not in {None, ""}:
+                raise ValueError(f"metric '{metric}' does not support variants")
+            return None
+        if variant is None or variant == "":
+            return DEFAULT_VARIANTS[metric]
+        if variant not in allowed_variants:
+            raise ValueError(
+                f"variant must be one of {', '.join(allowed_variants)} for metric '{metric}'"
+            )
+        return variant
 
     def _filter_path(self, name: str | None) -> Path:
         if not name:
@@ -298,13 +446,87 @@ class HistogramService:
             "filterFile": filter_file,
             "veto": veto,
             "binCount": AMPLITUDE_BIN_COUNT,
+            "binLabel": "Amplitude",
+            "countLabel": "Peak count",
             "series": series,
         }
+
+    def _normalize_generic_1d_payload(
+        self,
+        *,
+        metric: str,
+        variant: str | None,
+        run: int,
+        mode: str,
+        payload: Any,
+        title: str = "All traces",
+        filter_file: str | None = None,
+        veto: bool = False,
+        trace_count: int | None = None,
+    ) -> dict[str, Any]:
+        metadata = ONE_D_METRIC_METADATA[metric][variant]
+        if mode in {"all", "filtered"}:
+            loaded = _mapping_payload(payload)
+            histogram = (
+                np.asarray(payload, dtype=np.int64)
+                if isinstance(payload, np.ndarray)
+                else np.asarray(loaded[metadata["all_key"]], dtype=np.int64)
+            )
+            resolved_trace_count = (
+                int(trace_count)
+                if trace_count is not None
+                else int(np.asarray(loaded.get("trace_count", 0)).item())
+                if isinstance(loaded, dict)
+                else None
+            )
+            series = [
+                {
+                    "labelKey": "all" if mode == "all" else "filtered",
+                    "title": title,
+                    "traceCount": resolved_trace_count,
+                    "histogram": histogram.tolist(),
+                }
+            ]
+        else:
+            loaded = _mapping_payload(payload)
+            label_keys = loaded["label_keys"].tolist()
+            label_titles = loaded["label_titles"].tolist()
+            trace_counts = loaded["trace_counts"].astype(np.int64)
+            histograms = np.asarray(loaded[metadata["labeled_key"]], dtype=np.int64)
+            series = []
+            for index, label_key in enumerate(label_keys):
+                if int(trace_counts[index]) == 0:
+                    continue
+                series.append(
+                    {
+                        "labelKey": str(label_key),
+                        "title": str(label_titles[index]),
+                        "traceCount": int(trace_counts[index]),
+                        "histogram": histograms[index].tolist(),
+                    }
+                )
+        result = {
+            "metric": metric,
+            "mode": mode,
+            "run": run,
+            "filterFile": filter_file,
+            "veto": veto,
+            "binCount": metadata["bin_count"],
+            "binLabel": metadata["bin_label"],
+            "countLabel": metadata["count_label"],
+            "series": series,
+        }
+        if "bin_centers" in metadata:
+            result["binCenters"] = metadata["bin_centers"]
+        if variant is not None:
+            result["variant"] = variant
+        return result
 
     def _build_filtered_histogram(
         self,
         *,
         metric: str,
+        variant: str | None,
         run: int,
         filter_file: str | None,
         veto: bool,
@@ -324,6 +546,7 @@ class HistogramService:
         if trace_count == 0:
             return self._empty_filtered_payload(
                 metric=metric,
+                variant=variant,
                 run=run,
                 filter_file=filter_path.name,
                 veto=veto,
@@ -347,16 +570,83 @@ class HistogramService:
                 veto=veto,
                 trace_count=trace_count,
             )
-        histogram = self._build_filtered_amplitude_histogram(
+        if metric == "amplitude":
+            histogram = self._build_filtered_amplitude_histogram(
+                run=run,
+                grouped_trace_ids=grouped_trace_ids,
+                total_traces=trace_count,
+                progress=progress,
+            )
+            return self._normalize_amplitude_payload(
+                run=run,
+                mode="filtered",
+                payload=histogram,
+                title=title,
+                filter_file=filter_path.name,
+                veto=veto,
+                trace_count=trace_count,
+            )
+        if metric == "baseline":
+            histogram = self._build_filtered_baseline_histogram(
+                run=run,
+                grouped_trace_ids=grouped_trace_ids,
+                total_traces=trace_count,
+                progress=progress,
+            )
+            return self._normalize_generic_1d_payload(
+                metric="baseline",
+                variant=None,
+                run=run,
+                mode="filtered",
+                payload={
+                    "trace_count": np.int64(trace_count),
+                    "histogram": histogram,
+                },
+                title=title,
+                filter_file=filter_path.name,
+                veto=veto,
+                trace_count=trace_count,
+            )
+        if metric == "bitflip":
+            histograms = self._build_filtered_bitflip_histograms(
+                run=run,
+                grouped_trace_ids=grouped_trace_ids,
+                total_traces=trace_count,
+                progress=progress,
+            )
+            return self._normalize_generic_1d_payload(
+                metric="bitflip",
+                variant=variant,
+                run=run,
+                mode="filtered",
+                payload={
+                    "trace_count": np.int64(trace_count),
+                    "baseline_histogram": histograms["baseline_histogram"],
+                    "value_histogram": histograms["value_histogram"],
+                    "length_histogram": histograms["length_histogram"],
+                    "count_histogram": histograms["count_histogram"],
+                },
+                title=title,
+                filter_file=filter_path.name,
+                veto=veto,
+                trace_count=trace_count,
+            )
+        histograms = self._build_filtered_saturation_histograms(
             run=run,
             grouped_trace_ids=grouped_trace_ids,
             total_traces=trace_count,
             progress=progress,
         )
-        return self._normalize_amplitude_payload(
+        return self._normalize_generic_1d_payload(
+            metric="saturation",
+            variant=variant,
             run=run,
             mode="filtered",
-            payload=histogram,
+            payload={
+                "trace_count": np.int64(trace_count),
+                "drop_histogram": histograms["drop_histogram"],
+                "length_histogram": histograms["length_histogram"],
+            },
             title=title,
             filter_file=filter_path.name,
             veto=veto,
@@ -367,6 +657,7 @@ class HistogramService:
         self,
         *,
         metric: str,
+        variant: str | None,
         run: int,
         filter_file: str,
         veto: bool,
@@ -382,15 +673,48 @@ class HistogramService:
                 "valueBinCount": CDF_VALUE_BINS,
                 "series": [],
             }
-        return {
-            "metric": "amplitude",
+        if metric == "amplitude":
+            return {
+                "metric": "amplitude",
+                "mode": "filtered",
+                "run": run,
+                "filterFile": filter_file,
+                "veto": veto,
+                "binCount": AMPLITUDE_BIN_COUNT,
+                "binLabel": "Amplitude",
+                "countLabel": "Peak count",
+                "series": [],
+            }
+        if metric == "baseline":
+            return {
+                "metric": "baseline",
+                "mode": "filtered",
+                "run": run,
+                "filterFile": filter_file,
+                "veto": veto,
+                "binCount": BASELINE_BIN_COUNT,
+                "binLabel": BASELINE_BIN_LABEL,
+                "countLabel": BASELINE_COUNT_LABEL,
+                "binCenters": BASELINE_BIN_CENTERS.tolist(),
+                "series": [],
+            }
+        metadata = ONE_D_METRIC_METADATA[metric][variant]
+        payload = {
+            "metric": metric,
             "mode": "filtered",
             "run": run,
             "filterFile": filter_file,
             "veto": veto,
-            "binCount": AMPLITUDE_BIN_COUNT,
+            "binCount": metadata["bin_count"],
+            "binLabel": metadata["bin_label"],
+            "countLabel": metadata["count_label"],
             "series": [],
         }
+        if "bin_centers" in metadata:
+            payload["binCenters"] = metadata["bin_centers"]
+        if variant is not None:
+            payload["variant"] = variant
+        return payload
 
     def _build_filtered_cdf_histogram(
         self,
@@ -402,12 +726,7 @@ class HistogramService:
     ) -> np.ndarray:
         histogram = np.zeros((len(CDF_THRESHOLDS), CDF_VALUE_BINS), dtype=np.int64)
         processed_traces = 0
-        emit_progress(
-            progress,
-            current=0,
-            total=total_traces,
-            unit="trace",
-        )
+        emit_progress(progress, current=0, total=total_traces, unit="trace")
         with h5py.File(self.run_files[run], "r") as handle:
             for event_id in sorted(grouped_trace_ids):
                 trace_ids = grouped_trace_ids[event_id]
@@ -452,12 +771,7 @@ class HistogramService:
     ) -> np.ndarray:
         histogram = np.zeros(AMPLITUDE_BIN_COUNT, dtype=np.int64)
         processed_traces = 0
-        emit_progress(
-            progress,
-            current=0,
-            total=total_traces,
-            unit="trace",
-        )
+        emit_progress(progress, current=0, total=total_traces, unit="trace")
         with h5py.File(self.run_files[run], "r") as handle:
             for event_id in sorted(grouped_trace_ids):
                 trace_ids = grouped_trace_ids[event_id]
@@ -497,6 +811,161 @@ class HistogramService:
                 )
         return histogram
 
+    def _build_filtered_baseline_histogram(
+        self,
+        *,
+        run: int,
+        grouped_trace_ids: dict[int, np.ndarray],
+        total_traces: int,
+        progress: ProgressReporter | None = None,
+    ) -> np.ndarray:
+        histogram = np.zeros(BASELINE_BIN_COUNT, dtype=np.int64)
+        processed_traces = 0
+        emit_progress(progress, current=0, total=total_traces, unit="trace")
+        with h5py.File(self.run_files[run], "r") as handle:
+            for event_id in sorted(grouped_trace_ids):
+                trace_ids = grouped_trace_ids[event_id]
+                batch_size = int(trace_ids.shape[0])
+                try:
+                    traces = load_pad_traces(
+                        handle, run=run, event_id=event_id, trace_ids=trace_ids
+                    )
+                except LookupError:
+                    processed_traces += batch_size
+                    emit_progress(
+                        progress,
+                        current=processed_traces,
+                        total=total_traces,
+                        unit="trace",
+                        message=f"event={event_id}",
+                    )
+                    continue
+                cleaned = preprocess_traces(
+                    traces, baseline_window_scale=self.baseline_window_scale
+                )
+                accumulate_baseline_histogram(cleaned, histogram=histogram)
+                processed_traces += batch_size
+                emit_progress(
+                    progress,
+                    current=processed_traces,
+                    total=total_traces,
+                    unit="trace",
+                    message=f"event={event_id}",
+                )
+        return histogram
+
+    def _build_filtered_bitflip_histograms(
+        self,
+        *,
+        run: int,
+        grouped_trace_ids: dict[int, np.ndarray],
+        total_traces: int,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, np.ndarray]:
+        baseline_histogram = np.zeros(BITFLIP_BIN_COUNTS["baseline"], dtype=np.int64)
+        value_histogram = np.zeros(BITFLIP_BIN_COUNTS["value"], dtype=np.int64)
+        length_histogram = np.zeros(BITFLIP_BIN_COUNTS["length"], dtype=np.int64)
+        count_histogram = np.zeros(BITFLIP_BIN_COUNTS["count"], dtype=np.int64)
+        processed_traces = 0
+        emit_progress(progress, current=0, total=total_traces, unit="trace")
+        with h5py.File(self.run_files[run], "r") as handle:
+            for event_id in sorted(grouped_trace_ids):
+                trace_ids = grouped_trace_ids[event_id]
+                batch_size = int(trace_ids.shape[0])
+                try:
+                    traces = load_pad_traces(
+                        handle, run=run, event_id=event_id, trace_ids=trace_ids
+                    )
+                except LookupError:
+                    processed_traces += batch_size
+                    emit_progress(
+                        progress,
+                        current=processed_traces,
+                        total=total_traces,
+                        unit="trace",
+                        message=f"event={event_id}",
+                    )
+                    continue
+                cleaned = preprocess_traces(
+                    traces, baseline_window_scale=self.baseline_window_scale
+                )
+                accumulate_bitflip_histograms(
+                    cleaned,
+                    baseline_histogram=baseline_histogram,
+                    value_histogram=value_histogram,
+                    length_histogram=length_histogram,
+                    count_histogram=count_histogram,
+                    baseline_threshold=self.bitflip_baseline_threshold,
+                )
+                processed_traces += batch_size
+                emit_progress(
+                    progress,
+                    current=processed_traces,
+                    total=total_traces,
+                    unit="trace",
+                    message=f"event={event_id}",
+                )
+        return {
+            "baseline_histogram": baseline_histogram,
+            "value_histogram": value_histogram,
+            "length_histogram": length_histogram,
+            "count_histogram": count_histogram,
+        }
+
+    def _build_filtered_saturation_histograms(
+        self,
+        *,
+        run: int,
+        grouped_trace_ids: dict[int, np.ndarray],
+        total_traces: int,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, np.ndarray]:
+        drop_histogram = np.zeros(SATURATION_BIN_COUNTS["drop"], dtype=np.int64)
+        length_histogram = np.zeros(SATURATION_BIN_COUNTS["length"], dtype=np.int64)
+        processed_traces = 0
+        emit_progress(progress, current=0, total=total_traces, unit="trace")
+        with h5py.File(self.run_files[run], "r") as handle:
+            for event_id in sorted(grouped_trace_ids):
+                trace_ids = grouped_trace_ids[event_id]
+                batch_size = int(trace_ids.shape[0])
+                try:
+                    traces = load_pad_traces(
+                        handle, run=run, event_id=event_id, trace_ids=trace_ids
+                    )
+                except LookupError:
+                    processed_traces += batch_size
+                    emit_progress(
+                        progress,
+                        current=processed_traces,
+                        total=total_traces,
+                        unit="trace",
+                        message=f"event={event_id}",
+                    )
+                    continue
+                cleaned = preprocess_traces(
+                    traces, baseline_window_scale=self.baseline_window_scale
+                )
+                accumulate_saturation_histograms(
+                    cleaned,
+                    drop_histogram=drop_histogram,
+                    length_histogram=length_histogram,
+                    threshold=self.saturation_threshold,
+                    drop_threshold=self.saturation_drop_threshold,
+                    window_radius=self.saturation_window_radius,
+                )
+                processed_traces += batch_size
+                emit_progress(
+                    progress,
+                    current=processed_traces,
+                    total=total_traces,
+                    unit="trace",
+                    message=f"event={event_id}",
+                )
+        return {
+            "drop_histogram": drop_histogram,
+            "length_histogram": length_histogram,
+        }
+
     def _resolve_filtered_trace_ids(
         self,
         *,
@@ -530,7 +999,9 @@ class HistogramService:
                     ]
                     keep_mask = np.ones(trace_count, dtype=bool)
                     keep_mask[valid_selected] = False
-                    veto_trace_ids = np.flatnonzero(keep_mask).astype(np.int64, copy=False)
+                    veto_trace_ids = np.flatnonzero(keep_mask).astype(
+                        np.int64, copy=False
+                    )
                 if veto_trace_ids.size == 0:
                     continue
                 veto_grouped[int(event_id)] = veto_trace_ids

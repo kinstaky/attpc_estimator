@@ -8,9 +8,10 @@ from pathlib import Path
 
 import uvicorn
 
+from ..process.bitflip import BITFLIP_BASELINE_DEFAULT
 from ..server import create_app
 from ..service.estimator import EstimatorService
-from .config import parse_run, parse_toml_config
+from .config import parse_run, parse_toml_config, root_config_values, table_config_values
 
 
 def main() -> None:
@@ -29,6 +30,11 @@ def main() -> None:
         service = EstimatorService(
             trace_path=trace_path,
             workspace=workspace,
+            baseline_window_scale=args.baseline_window_scale,
+            bitflip_baseline_threshold=args.bitflip_baseline,
+            saturation_threshold=args.saturation_threshold,
+            saturation_drop_threshold=args.saturation_drop_threshold,
+            saturation_window_radius=args.saturation_window_radius,
             default_run=default_run,
             verbose=bool(args.verbose),
         )
@@ -50,9 +56,27 @@ def main() -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    config_path, config = parse_toml_config(
-        sys.argv[1:],
+    config_path, payload = parse_toml_config(sys.argv[1:])
+    config = root_config_values(
+        payload,
         allowed_keys={"trace_path", "workspace", "port", "run"},
+    )
+    baseline_config = table_config_values(
+        payload,
+        table="baseline",
+        allowed_keys={"fft_window_scale"},
+    )
+    bitflip_config = table_config_values(
+        payload,
+        table="bitflip",
+        allowed_keys={
+            "baseline",
+        },
+    )
+    saturation_config = table_config_values(
+        payload,
+        table="saturation",
+        allowed_keys={"threshold", "drop_threshold", "window_radius"},
     )
     parser = argparse.ArgumentParser(description="Launch the merged web UI app")
     parser.add_argument(
@@ -88,6 +112,36 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=config.get("port", 8766),
         help="Preferred local HTTP port",
+    )
+    parser.add_argument(
+        "--baseline-window-scale",
+        type=float,
+        default=baseline_config.get("fft_window_scale", 10.0),
+        help="Baseline-removal filter scale used for review/label trace preprocessing",
+    )
+    parser.add_argument(
+        "--bitflip-baseline",
+        type=float,
+        default=bitflip_config.get("baseline", BITFLIP_BASELINE_DEFAULT),
+        help="Absolute second-derivative threshold used when building filtered bitflip histograms",
+    )
+    parser.add_argument(
+        "--saturation-threshold",
+        type=float,
+        default=saturation_config.get("threshold", 2000.0),
+        help="Minimum trace maximum required before building filtered saturation histograms",
+    )
+    parser.add_argument(
+        "--saturation-drop-threshold",
+        type=float,
+        default=saturation_config.get("drop_threshold", 10.0),
+        help="Drop threshold used when measuring filtered saturation plateau lengths",
+    )
+    parser.add_argument(
+        "--saturation-window-radius",
+        type=int,
+        default=saturation_config.get("window_radius", 16),
+        help="Local window radius used when accumulating filtered saturation drop histograms",
     )
     parser.add_argument(
         "--verbose",

@@ -226,39 +226,28 @@ def _decode_attr_value(value: object) -> str | None:
     return str(value)
 
 
-@njit(cache=True)
 def _replace_baseline_peaks(trace_matrix: np.ndarray) -> np.ndarray:
-    bases = trace_matrix.copy()
-    row_count, sample_count = bases.shape
+    bases = np.array(trace_matrix, copy=True)
+    means = np.mean(bases, axis=1, keepdims=True, dtype=np.float32)
+    sigmas = np.std(bases, axis=1, keepdims=True, dtype=np.float32)
+    cutoff = sigmas * np.float32(1.5)
+    valid_mask = np.abs(bases - means) <= cutoff
 
-    for row_index in range(row_count):
-        row = bases[row_index]
+    valid_sums = np.sum(
+        np.where(valid_mask, bases, np.float32(0.0)),
+        axis=1,
+        keepdims=True,
+        dtype=np.float32,
+    )
+    valid_counts = np.sum(valid_mask, axis=1, keepdims=True, dtype=np.int32)
+    replacements = np.divide(
+        valid_sums,
+        valid_counts,
+        out=means.copy(),
+        where=valid_counts > 0,
+    ).astype(np.float32, copy=False)
 
-        mean = 0.0
-        for sample_index in range(sample_count):
-            mean += float(row[sample_index])
-        mean /= sample_count
-
-        variance = 0.0
-        for sample_index in range(sample_count):
-            diff = float(row[sample_index]) - mean
-            variance += diff * diff
-        sigma = np.sqrt(variance / sample_count)
-        cutoff = sigma * 1.5
-
-        valid_sum = 0.0
-        valid_count = 0
-        for sample_index in range(sample_count):
-            if abs(float(row[sample_index]) - mean) <= cutoff:
-                valid_sum += float(row[sample_index])
-                valid_count += 1
-
-        replacement = mean if valid_count == 0 else valid_sum / valid_count
-        for sample_index in range(sample_count):
-            if abs(float(row[sample_index]) - mean) > cutoff:
-                row[sample_index] = replacement
-
-    return bases
+    return np.where(valid_mask, bases, replacements).astype(np.float32, copy=False)
 
 
 @lru_cache(maxsize=None)

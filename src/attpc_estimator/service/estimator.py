@@ -10,6 +10,7 @@ import numpy as np
 
 from ..model.label import NORMAL_BUCKETS, StoredLabel
 from ..model.trace import TraceRef
+from ..process.bitflip import BITFLIP_BASELINE_DEFAULT
 from ..storage.labels_db import LabelRepository
 from ..storage.run_paths import collect_run_files, labels_db_path
 from .histograms import HistogramService
@@ -53,12 +54,17 @@ class EstimatorService:
         trace_path: Path,
         workspace: Path,
         baseline_window_scale: float = 10.0,
+        bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
+        saturation_threshold: float = 2000.0,
+        saturation_drop_threshold: float = 10.0,
+        saturation_window_radius: int = 16,
         default_run: int | None = None,
         verbose: bool = False,
     ) -> None:
         self.trace_path = trace_path
         self.workspace = workspace
         self.baseline_window_scale = baseline_window_scale
+        self.bitflip_baseline_threshold = bitflip_baseline_threshold
         self.verbose = verbose
         self.run_files = collect_run_files(trace_path)
         self.repository = LabelRepository(labels_db_path(workspace))
@@ -67,6 +73,10 @@ class EstimatorService:
             trace_path=trace_path,
             workspace=workspace,
             baseline_window_scale=baseline_window_scale,
+            bitflip_baseline_threshold=bitflip_baseline_threshold,
+            saturation_threshold=saturation_threshold,
+            saturation_drop_threshold=saturation_drop_threshold,
+            saturation_window_radius=saturation_window_radius,
         )
         resolved_default_run = self._resolve_initial_run(default_run)
         self.session = SessionState(mode="label", run=resolved_default_run)
@@ -280,6 +290,7 @@ class EstimatorService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
     ) -> dict[str, Any]:
@@ -287,6 +298,7 @@ class EstimatorService:
             metric=metric,
             mode=mode,
             run=run,
+            variant=variant,
             filter_file=filter_file,
             veto=veto,
         )
@@ -297,6 +309,7 @@ class EstimatorService:
         metric: str,
         mode: str,
         run: int,
+        variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
     ) -> dict[str, str]:
@@ -305,6 +318,7 @@ class EstimatorService:
                 metric=metric,
                 mode=mode,
                 run=run,
+                variant=variant,
                 filter_file=filter_file,
                 veto=veto,
             )
@@ -345,6 +359,7 @@ class EstimatorService:
         label = self.repository.get_label(record.run, record.event_id, record.trace_id)
         return serialize_trace_payload(
             record,
+            bitflip_baseline_threshold=self.bitflip_baseline_threshold,
             label=label,
             review_progress=self._current_source().get_progress(),
             include_run=True,

@@ -16,9 +16,15 @@ from attpc_estimator.storage.labeled_traces import read_labeled_trace
 from tests.hdf5_fixtures import write_legacy_hdf5
 
 
-def _oscillation_trace() -> np.ndarray:
-    x = np.arange(256, dtype=np.float32)
-    return (45.0 * np.sin(2.0 * np.pi * x / 4.0)).astype(np.float32)
+def _trace_from_second_derivative(
+    second_diff: list[float],
+    sample_count: int = 256,
+) -> np.ndarray:
+    values = np.asarray(second_diff, dtype=np.float32)
+    trace = np.zeros(sample_count, dtype=np.float32)
+    for index, value in enumerate(values):
+        trace[index + 2] = value + (2.0 * trace[index + 1]) - trace[index]
+    return trace
 
 
 def _low_amplitude_trace() -> np.ndarray:
@@ -31,12 +37,17 @@ def _high_amplitude_trace() -> np.ndarray:
     return (80.0 * np.exp(-0.5 * ((x - 120.0) / 8.0) ** 2)).astype(np.float32)
 
 
-def _oscillating_peak_trace() -> np.ndarray:
-    x = np.arange(256, dtype=np.float32)
-    return (
-        60.0 * np.sin(2.0 * np.pi * x / 4.0)
-        + 10.0 * np.exp(-0.5 * ((x - 120.0) / 8.0) ** 2)
-    ).astype(np.float32)
+def _qualified_bitflip_trace() -> np.ndarray:
+    return _trace_from_second_derivative(
+        [0.0, 61.0, -121.0, 450.0, -512.0, 0.0, 0.0, 0.0]
+    )
+
+
+def _saturation_trace() -> np.ndarray:
+    row = np.zeros(256, dtype=np.float32)
+    row[120:124] = 2105.0
+    row[124] = 2098.0
+    return row
 
 
 def _pad_rows(traces: list[np.ndarray]) -> np.ndarray:
@@ -76,14 +87,26 @@ def seed_workspace_db(workspace: Path) -> None:
     repository.connection.close()
 
 
+def seed_saturation_workspace_db(workspace: Path) -> None:
+    repository = LabelRepository(workspace / "labels.db")
+    repository.initialize()
+    repository.create_strange_label("oscillation", "o")
+    repository.create_strange_label("saturation", "s")
+    repository.save_label(8, 1, 0, "pad", 1, 1, 1, 1, 1, "strange", "saturation")
+    repository.save_label(8, 1, 1, "pad", 2, 2, 2, 2, 2, "normal", "1")
+    repository.save_label(8, 1, 2, "pad", 3, 3, 3, 3, 3, "normal", "1")
+    repository.save_label(8, 1, 3, "pad", 4, 4, 4, 4, 4, "normal", "0")
+    repository.connection.close()
+
+
 def make_workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     write_run_file(
         workspace / "run_0008.h5",
         {
-            1: [_oscillation_trace(), _low_amplitude_trace(), _high_amplitude_trace()],
-            2: [_oscillating_peak_trace(), _low_amplitude_trace()],
+            1: [_qualified_bitflip_trace(), _low_amplitude_trace(), _high_amplitude_trace()],
+            2: [_qualified_bitflip_trace(), _low_amplitude_trace()],
         },
     )
     write_run_file(
@@ -93,6 +116,24 @@ def make_workspace(tmp_path: Path) -> Path:
         },
     )
     seed_workspace_db(workspace)
+    return workspace
+
+
+def make_saturation_workspace(tmp_path: Path) -> Path:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_run_file(
+        workspace / "run_0008.h5",
+        {
+            1: [
+                _saturation_trace(),
+                _saturation_trace(),
+                _high_amplitude_trace(),
+                _low_amplitude_trace(),
+            ],
+        },
+    )
+    seed_saturation_workspace_db(workspace)
     return workspace
 
 
@@ -126,8 +167,8 @@ def test_read_labeled_trace_supports_legacy_trace_layout(tmp_path) -> None:
     write_legacy_hdf5(
         workspace / "run_0008.h5",
         {
-            1: _pad_rows([_oscillation_trace(), _low_amplitude_trace(), _high_amplitude_trace()]),
-            2: _pad_rows([_oscillating_peak_trace(), _low_amplitude_trace()]),
+            1: _pad_rows([_qualified_bitflip_trace(), _low_amplitude_trace(), _high_amplitude_trace()]),
+            2: _pad_rows([_qualified_bitflip_trace(), _low_amplitude_trace()]),
         },
     )
     seed_workspace_db(workspace)
@@ -189,7 +230,7 @@ def test_build_relabel_rows_noise_applies_zero_peak_rule_and_reports_noise_ratio
     assert metrics["normal1_to_normal0"] == (1, 3)
 
 
-def test_build_relabel_rows_oscillation_applies_f60_rule_and_reports_oscillation_ratios(
+def test_build_relabel_rows_oscillation_applies_bitflip_rule_and_reports_oscillation_ratios(
     tmp_path,
 ) -> None:
     workspace = make_workspace(tmp_path)
@@ -329,6 +370,8 @@ def test_relabel_main_zero_pads_integer_run_from_config_file(
                 f'trace_path = "{workspace}"',
                 f'workspace = "{workspace}"',
                 "run = 8",
+                "",
+                "[relabel]",
                 'label = "noise"',
             ]
         ),
@@ -375,10 +418,36 @@ def test_relabel_main_requires_label_option(tmp_path, monkeypatch, capsys) -> No
     assert "the following arguments are required: --label" in capsys.readouterr().err
 
 
-def test_relabel_main_saturation_is_not_implemented(
-    tmp_path, monkeypatch
+def test_build_relabel_rows_saturation_applies_plateau_rule_and_reports_saturation_ratios(
+    tmp_path,
 ) -> None:
-    workspace = make_workspace(tmp_path)
+    workspace = make_saturation_workspace(tmp_path)
+
+    rows, metrics = build_relabel_rows(
+        trace_path=workspace,
+        workspace=workspace,
+        run=8,
+        label="saturation",
+    )
+
+    assert rows["new_label"].tolist() == [
+        "strange:saturation",
+        "strange:saturation",
+        "normal:1",
+        "normal:0",
+    ]
+    assert set(metrics) == {
+        "saturation_to_saturation",
+        "normal1_to_saturation",
+    }
+    assert metrics["saturation_to_saturation"] == (1, 1)
+    assert metrics["normal1_to_saturation"] == (1, 2)
+
+
+def test_relabel_main_saturation_writes_rows_and_prints_saturation_ratios(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    workspace = make_saturation_workspace(tmp_path)
 
     monkeypatch.setattr(
         sys,
@@ -396,10 +465,21 @@ def test_relabel_main_saturation_is_not_implemented(
         ],
     )
 
-    with pytest.raises(SystemExit) as exc:
-        relabel_main()
+    relabel_main()
 
-    assert str(exc.value) == "relabel label 'saturation' is not implemented yet"
+    output_path = workspace / "run_0008_labeled_relabel.npy"
+    saved = np.load(output_path)
+    stdout = capsys.readouterr().out
+
+    assert output_path.is_file()
+    assert saved["new_label"].tolist() == [
+        "strange:saturation",
+        "strange:saturation",
+        "normal:1",
+        "normal:0",
+    ]
+    assert "old strange:saturation -> new strange:saturation: 1/1 = 1.000000" in stdout
+    assert "old normal:1 -> new strange:saturation: 1/2 = 0.500000" in stdout
 
 
 def test_build_labeled_amplitude_histograms_groups_histograms_by_label(
@@ -430,8 +510,8 @@ def test_build_labeled_amplitude_histograms_groups_histograms_by_label(
     ]
     assert payload["trace_counts"].tolist() == [1, 3, 0, 0, 0, 1]
     assert int(payload["histograms"][0].sum()) == 0
-    assert int(payload["histograms"][1].sum()) == 5
-    assert int(payload["histograms"][5].sum()) == 5
+    assert int(payload["histograms"][1].sum()) == 2
+    assert int(payload["histograms"][5].sum()) == 1
 
 
 def test_find_peaks_main_labeled_writes_payload_npz(tmp_path, monkeypatch) -> None:
@@ -467,7 +547,7 @@ def test_find_peaks_main_labeled_writes_payload_npz(tmp_path, monkeypatch) -> No
         "strange:oscillation",
     ]
     assert payload["trace_counts"].tolist() == [1, 3, 0, 0, 0, 1]
-    assert int(payload["histograms"][1].sum()) == 5
+    assert int(payload["histograms"][1].sum()) == 2
 
 
 def test_find_peaks_main_zero_pads_integer_run_from_config_file(
@@ -481,6 +561,8 @@ def test_find_peaks_main_zero_pads_integer_run_from_config_file(
                 f'trace_path = "{workspace}"',
                 f'workspace = "{workspace}"',
                 "run = 8",
+                "",
+                "[amplitude]",
                 "labeled = true",
             ]
         ),

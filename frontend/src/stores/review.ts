@@ -11,7 +11,7 @@ import type { TracePayload } from "../types";
 
 type ReviewSource = "label_set" | "filter_file";
 type ReviewFamily = "normal" | "strange";
-type VisualMode = "raw" | "analysis";
+type VisualMode = "raw" | "cdf" | "curvature";
 
 interface ReviewState {
   source: ReviewSource;
@@ -33,7 +33,7 @@ const state = reactive<ReviewState>({
   label: "",
   filterFile: "",
   currentTrace: null,
-  visualMode: "analysis",
+  visualMode: "cdf",
   loading: false,
   error: "",
   statusMessage: "",
@@ -80,14 +80,19 @@ function setFilterFile(filterFile: string): void {
 }
 
 function setVisualMode(mode: VisualMode): void {
-  if (mode !== "raw" && mode !== "analysis") {
+  if (mode !== "raw" && mode !== "cdf" && mode !== "curvature") {
     return;
   }
   state.visualMode = mode;
 }
 
 function toggleVisualMode(): void {
-  state.visualMode = state.visualMode === "raw" ? "analysis" : "raw";
+  state.visualMode =
+    state.visualMode === "raw"
+      ? "cdf"
+      : state.visualMode === "cdf"
+        ? "curvature"
+        : "raw";
 }
 
 function applyQuery(query: Record<string, unknown>): void {

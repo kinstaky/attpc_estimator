@@ -10,9 +10,13 @@ import { loadPlotly } from "../lib/plotly";
 const props = defineProps({
   metric: { type: String, required: true },
   series: { type: Object, required: true },
+  variant: { type: String, default: "" },
   thresholds: { type: Array, default: () => [] },
   valueBinCount: { type: Number, default: 0 },
   binCount: { type: Number, default: 0 },
+  binCenters: { type: Array, default: () => [] },
+  binLabel: { type: String, default: "" },
+  countLabel: { type: String, default: "Count" },
   scaleMode: { type: String, default: "linear" },
   cdfRenderMode: { type: String, default: "2d" },
   cdfProjectionBin: { type: Number, default: 60 },
@@ -187,9 +191,17 @@ async function renderCdfProjection() {
   );
 }
 
-async function renderAmplitude() {
+function hoverLabel() {
+  if (props.metric === "amplitude") {
+    return "Amplitude";
+  }
+  return props.binLabel || "Value";
+}
+
+async function renderOneDimensional() {
   const Plotly = await loadPlotly();
   const count = props.binCount || props.series.histogram.length;
+  const xValues = props.binCenters?.length ? props.binCenters : histogramIndices(count);
   const yValues = props.series.histogram.map((value) => {
     const total = Number(value || 0);
     if (props.scaleMode === "log" && total <= 0) {
@@ -203,25 +215,25 @@ async function renderAmplitude() {
     [
       {
         type: "bar",
-        x: histogramIndices(count),
+        x: xValues,
         y: yValues,
         customdata: props.series.histogram,
         marker: {
           color: "#174f40",
         },
-        hovertemplate: "Amplitude %{x}<br>Count %{customdata}<extra></extra>",
+        hovertemplate: `${hoverLabel()} %{x}<br>${props.countLabel || "Count"} %{customdata}<extra></extra>`,
       },
     ],
     {
       ...baseLayout(),
       title: { text: props.series.title, x: 0.02, xanchor: "left" },
       xaxis: {
-        title: "Amplitude",
+        title: props.binLabel || hoverLabel(),
         zeroline: false,
         gridcolor: "#e7dfcf",
       },
       yaxis: {
-        title: "Peak count",
+        title: props.countLabel || "Count",
         type: props.scaleMode === "log" ? "log" : "linear",
         zeroline: false,
         gridcolor: "#e7dfcf",
@@ -247,7 +259,7 @@ async function renderPlot() {
     await renderCdfHeatmap();
     return;
   }
-  await renderAmplitude();
+  await renderOneDimensional();
 }
 
 onMounted(() => {
@@ -258,9 +270,13 @@ watch(
   () => [
     props.metric,
     props.series,
+    props.variant,
     props.thresholds,
     props.valueBinCount,
     props.binCount,
+    props.binCenters,
+    props.binLabel,
+    props.countLabel,
     props.scaleMode,
     props.cdfRenderMode,
     props.cdfProjectionBin,

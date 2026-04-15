@@ -28,9 +28,12 @@ dev = [
 
 [project.scripts]
 amplitude = "attpc_estimator.cli.amplitude:main"
+baseline = "attpc_estimator.cli.baseline:main"
 cdf = "attpc_estimator.cli.cdf:main"
+bitflip = "attpc_estimator.cli.bitflip:main"
 filter = "attpc_estimator.cli.filter:main"
 relabel = "attpc_estimator.cli.relabel:main"
+saturation = "attpc_estimator.cli.saturation:main"
 webui = "attpc_estimator.cli.webui:main"
 
 [tool.pytest.ini_options]

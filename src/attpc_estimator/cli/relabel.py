@@ -7,13 +7,21 @@ from pathlib import Path
 import numpy as np
 
 from ..process.relabel import (
+    BITFLIP_BASELINE_DEFAULT,
+    BITFLIP_FILTER_MIN_COUNT_DEFAULT,
     RELABEL_LABEL_CHOICES,
+    SATURATION_DROP_THRESHOLD_DEFAULT,
+    SATURATION_RELABEL_MIN_PLATEAU_LENGTH_DEFAULT,
     build_relabel_rows,
     print_ratio,
     ratio_items_for_label,
 )
+from ..process.filter_core import (
+    SATURATION_THRESHOLD_DEFAULT,
+    SATURATION_WINDOW_RADIUS_DEFAULT,
+)
 from ..storage.run_paths import format_run_id
-from .config import parse_run, parse_toml_config
+from .config import parse_run, parse_toml_config, root_config_values, table_config_values
 from .progress import tqdm_reporter
 
 
@@ -28,21 +36,24 @@ def main() -> None:
     if not workspace.is_dir():
         raise SystemExit(f"workspace not found: {workspace}")
 
-    try:
-        with tqdm_reporter("Relabeling traces") as progress:
-            rows, metrics = build_relabel_rows(
-                trace_path=trace_path,
-                workspace=workspace,
-                run=selected_run,
-                label=args.label,
-                baseline_window_scale=args.baseline_window_scale,
-                peak_separation=args.peak_separation,
-                peak_prominence=args.peak_prominence,
-                peak_width=args.peak_width,
-                progress=progress,
-            )
-    except NotImplementedError as exc:
-        raise SystemExit(str(exc)) from exc
+    with tqdm_reporter("Relabeling traces") as progress:
+        rows, metrics = build_relabel_rows(
+            trace_path=trace_path,
+            workspace=workspace,
+            run=selected_run,
+            label=args.label,
+            baseline_window_scale=args.baseline_window_scale,
+            peak_separation=args.peak_separation,
+            peak_prominence=args.peak_prominence,
+            peak_width=args.peak_width,
+            bitflip_baseline_threshold=args.bitflip_baseline,
+            bitflip_min_count=args.bitflip_min_count,
+            saturation_threshold=args.saturation_threshold,
+            saturation_drop_threshold=args.saturation_drop_threshold,
+            saturation_window_radius=args.saturation_window_radius,
+            saturation_min_plateau_length=args.saturation_min_plateau_length,
+            progress=progress,
+        )
 
     if run_token is None:
         output_path = workspace / "labeled_relabel.npy"
@@ -58,21 +69,38 @@ def main() -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    config_path, config = parse_toml_config(
-        sys.argv[1:],
+    config_path, payload = parse_toml_config(sys.argv[1:])
+    config = root_config_values(
+        payload,
+        allowed_keys={"trace_path", "workspace", "run"},
+    )
+    relabel_config = table_config_values(
+        payload,
+        table="relabel",
+        allowed_keys={"label", "baseline_window_scale"},
+    )
+    amplitude_config = table_config_values(
+        payload,
+        table="amplitude",
+        allowed_keys={"peak_separation", "peak_prominence", "peak_width"},
+    )
+    bitflip_config = table_config_values(
+        payload,
+        table="bitflip",
+        allowed_keys={"baseline", "min_count"},
+    )
+    saturation_config = table_config_values(
+        payload,
+        table="saturation",
         allowed_keys={
-            "trace_path",
-            "workspace",
-            "run",
-            "label",
-            "baseline_window_scale",
-            "peak_separation",
-            "peak_prominence",
-            "peak_width",
+            "threshold",
+            "drop_threshold",
+            "window_radius",
+            "min_plateau_length",
         },
     )
     parser = argparse.ArgumentParser(
-        description="Relabel labeled traces using FFT CDF and amplitude heuristics",
+        description="Relabel labeled traces using amplitude, bitflip, and saturation heuristics",
     )
     parser.add_argument(
         "-c",
@@ -105,32 +133,70 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--label",
         choices=RELABEL_LABEL_CHOICES,
-        required="label" not in config,
-        default=config.get("label"),
-        help="Relabel mode: noise uses the current zero-peak heuristic, oscillation uses the FFT CDF rule, saturation is reserved for future implementation.",
+        required="label" not in relabel_config,
+        default=relabel_config.get("label"),
+        help="Relabel mode: noise uses the current zero-peak heuristic, oscillation uses the bitflip rule, saturation uses the saturation plateau rule.",
     )
     parser.add_argument(
         "--baseline-window-scale",
         type=float,
-        default=config.get("baseline_window_scale", 10.0),
+        default=relabel_config.get("baseline_window_scale", 10.0),
         help="Baseline-removal filter scale used before taking the FFT",
     )
     parser.add_argument(
         "--peak-separation",
         type=float,
-        default=config.get("peak_separation", 50.0),
+        default=amplitude_config.get("peak_separation", 50.0),
         help="Minimum separation between peaks",
     )
     parser.add_argument(
         "--peak-prominence",
         type=float,
-        default=config.get("peak_prominence", 20.0),
+        default=amplitude_config.get("peak_prominence", 20.0),
         help="Prominence of peaks",
     )
     parser.add_argument(
         "--peak-width",
         type=float,
-        default=config.get("peak_width", 50.0),
+        default=amplitude_config.get("peak_width", 50.0),
         help="Maximum width of peaks",
+    )
+    parser.add_argument(
+        "--bitflip-baseline",
+        type=float,
+        default=bitflip_config.get("baseline", BITFLIP_BASELINE_DEFAULT),
+        help="Absolute second-derivative threshold used to classify baseline points for oscillation relabeling",
+    )
+    parser.add_argument(
+        "--bitflip-min-count",
+        type=int,
+        default=bitflip_config.get("min_count", BITFLIP_FILTER_MIN_COUNT_DEFAULT),
+        help="Minimum number of qualified bitflip segments required to relabel a trace as oscillation",
+    )
+    parser.add_argument(
+        "--saturation-threshold",
+        type=float,
+        default=saturation_config.get("threshold", SATURATION_THRESHOLD_DEFAULT),
+        help="Minimum trace maximum required before evaluating saturation relabeling",
+    )
+    parser.add_argument(
+        "--saturation-drop-threshold",
+        type=float,
+        default=saturation_config.get("drop_threshold", SATURATION_DROP_THRESHOLD_DEFAULT),
+        help="Maximum drop from the local maximum when measuring saturation plateau length for relabeling",
+    )
+    parser.add_argument(
+        "--saturation-window-radius",
+        type=int,
+        default=saturation_config.get("window_radius", SATURATION_WINDOW_RADIUS_DEFAULT),
+        help="Local window radius used when measuring saturation drops for relabeling",
+    )
+    parser.add_argument(
+        "--saturation-min-plateau-length",
+        type=int,
+        default=saturation_config.get(
+            "min_plateau_length", SATURATION_RELABEL_MIN_PLATEAU_LENGTH_DEFAULT
+        ),
+        help="Minimum plateau length required to relabel a trace as saturation",
     )
     return parser.parse_args()

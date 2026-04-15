@@ -263,6 +263,8 @@ def test_cdf_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
                 f'trace_path = "{trace_path}"',
                 f'workspace = "{workspace}"',
                 'run = "0006"',
+                "",
+                "[cdf]",
                 "baseline_window_scale = 12.5",
             ]
         ),
@@ -291,6 +293,8 @@ def test_cdf_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatch) 
                 f'trace_path = "{trace_root}"',
                 f'workspace = "{workspace}"',
                 "run = 106",
+                "",
+                "[cdf]",
                 "baseline_window_scale = 12.5",
             ]
         ),
@@ -318,6 +322,8 @@ def test_cdf_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> N
                 f'trace_path = "{trace_path}"',
                 f'workspace = "{workspace}"',
                 'run = "9999"',
+                "",
+                "[cdf]",
                 "baseline_window_scale = 12.5",
             ]
         ),

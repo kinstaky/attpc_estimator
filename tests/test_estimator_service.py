@@ -6,7 +6,9 @@ import h5py
 import numpy as np
 import pytest
 
+from attpc_estimator.model.trace import TraceRecord
 from attpc_estimator.service.estimator import EstimatorService
+from attpc_estimator.service.traces.payload import serialize_trace_payload
 from tests.hdf5_fixtures import write_legacy_hdf5
 
 
@@ -43,6 +45,14 @@ def write_hdf5_input(path) -> None:
         )
 
 
+def _trace_from_second_derivative(second_diff: list[float]) -> np.ndarray:
+    values = np.asarray(second_diff, dtype=np.float32)
+    trace = np.zeros(values.size + 2, dtype=np.float32)
+    for index, value in enumerate(values):
+        trace[index + 2] = value + (2.0 * trace[index + 1]) - trace[index]
+    return trace
+
+
 def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
     trace_path = tmp_path / "run_0001.h5"
     workspace = tmp_path / "workspace"
@@ -74,11 +84,13 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
         "raw": [1.0, 2.0, 3.0],
         "trace": first["trace"],
         "transformed": first["transformed"],
+        "bitflipAnalysis": first["bitflipAnalysis"],
         "currentLabel": {"family": "normal", "label": "0"},
         "reviewProgress": {"current": 1, "total": 2},
     }
     assert first["trace"] == payload["trace"]["trace"]
     assert first["transformed"] == payload["trace"]["transformed"]
+    assert first["bitflipAnalysis"] == payload["trace"]["bitflipAnalysis"]
     assert (first["eventId"], first["traceId"]) == (1, 0)
     assert first["currentLabel"] == {"family": "normal", "label": "0"}
     assert first["reviewProgress"] == {"current": 1, "total": 2}
@@ -257,12 +269,77 @@ def test_trace_payload_includes_transformed_trace(tmp_path) -> None:
     assert "raw" in payload
     assert "trace" in payload
     assert "transformed" in payload
+    assert "bitflipAnalysis" in payload
     assert len(payload["raw"]) == len(payload["trace"]) == 3
     assert len(payload["transformed"]) == 2
+    assert payload["bitflipAnalysis"]["xIndices"] == [0, 1, 2]
+    assert len(payload["bitflipAnalysis"]["firstDerivative"]) == 3
+    np.testing.assert_allclose(
+        payload["bitflipAnalysis"]["firstDerivative"],
+        np.concatenate(([0.0], np.diff(payload["trace"]))),
+    )
+    assert len(payload["bitflipAnalysis"]["secondDerivative"]) == 3
+    assert payload["bitflipAnalysis"]["secondDerivative"] == [0.0, 0.0, 0.0]
+    assert payload["bitflipAnalysis"]["structures"] == []
     np.testing.assert_allclose(
         payload["transformed"],
         np.abs(np.fft.rfft(payload["trace"])),
     )
+
+
+def test_trace_payload_includes_padded_second_derivative(tmp_path) -> None:
+    trace_path = tmp_path / "run_0008.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_legacy_hdf5(
+        trace_path,
+        {
+            1: np.asarray(
+                [
+                    [10, 11, 12, 13, 14, *([0.0] * 23), *([64.0] * 36)],
+                ],
+                dtype=np.float32,
+            )
+        },
+    )
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+
+    payload = service.set_session(mode="label", run=8)["trace"]
+
+    assert len(payload["bitflipAnalysis"]["firstDerivative"]) == len(payload["trace"])
+    assert payload["bitflipAnalysis"]["firstDerivative"][0] == 0.0
+    assert len(payload["bitflipAnalysis"]["secondDerivative"]) == len(payload["trace"])
+    assert payload["bitflipAnalysis"]["secondDerivative"][0] == 0.0
+    assert payload["bitflipAnalysis"]["secondDerivative"][-1] == 0.0
+    assert max(abs(value) for value in payload["bitflipAnalysis"]["secondDerivative"]) > 0.0
+
+
+def test_serialize_trace_payload_includes_bitflip_structure_endpoints() -> None:
+    trace = _trace_from_second_derivative([0.0, 61.0, -121.0, 450.0, -512.0, 0.0, 0.0, 0.0])
+    record = TraceRecord(
+        run=10,
+        event_id=1,
+        trace_id=0,
+        detector="pad",
+        hardware_id=np.asarray([10, 11, 12, 13, 14], dtype=np.float32),
+        raw=trace.copy(),
+        trace=trace.copy(),
+        transformed=np.asarray([1.0, 2.0], dtype=np.float32),
+        family=None,
+        label=None,
+    )
+    payload = serialize_trace_payload(
+        record,
+        bitflip_baseline_threshold=1.0,
+        label=None,
+        review_progress=None,
+        include_run=True,
+    )
+
+    assert payload["bitflipAnalysis"]["structures"] == [
+        {"startBaselineIndex": 1, "endBaselineIndex": 6}
+    ]
 
 
 def test_label_mode_supports_legacy_trace_layout(tmp_path) -> None:

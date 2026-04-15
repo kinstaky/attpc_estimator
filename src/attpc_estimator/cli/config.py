@@ -9,11 +9,7 @@ from typing import Any
 DEFAULT_CONFIG_FILE = "config.toml"
 
 
-def parse_toml_config(
-    argv: list[str] | None,
-    *,
-    allowed_keys: set[str],
-) -> tuple[Path, dict[str, Any]]:
+def parse_toml_config(argv: list[str] | None) -> tuple[Path, dict[str, Any]]:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     config_file = _parse_config_option(raw_argv)
     config_path = Path(config_file).expanduser()
@@ -34,8 +30,29 @@ def parse_toml_config(
             f"config file must contain a TOML table: {config_path.resolve()}"
         )
 
-    config = {key: value for key, value in dict(payload).items() if key in allowed_keys}
-    return config_path.resolve(), config
+    return config_path.resolve(), dict(payload)
+
+
+def root_config_values(
+    payload: dict[str, Any],
+    *,
+    allowed_keys: set[str],
+) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key in allowed_keys}
+
+
+def table_config_values(
+    payload: dict[str, Any],
+    *,
+    table: str,
+    allowed_keys: set[str],
+) -> dict[str, Any]:
+    raw_table = payload.get(table)
+    if raw_table is None:
+        return {}
+    if not isinstance(raw_table, dict):
+        raise SystemExit(f"config section [{table}] must be a TOML table")
+    return {key: value for key, value in raw_table.items() if key in allowed_keys}
 
 
 def parse_run(value: str) -> str:

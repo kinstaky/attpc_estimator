@@ -5,22 +5,29 @@ from pathlib import Path
 import numpy as np
 
 from ..storage.labeled_traces import iter_labeled_trace_batches
-from .amplitude import max_peak_amplitude
-from .progress import ProgressReporter, emit_progress
-from ..utils.trace_data import (
-    compute_frequency_distribution,
-    preprocess_traces,
-    sample_cdf_points,
+from .bitflip import (
+    BITFLIP_BASELINE_DEFAULT,
+    BITFLIP_FILTER_MIN_COUNT_DEFAULT,
+    count_qualified_bitflip_segments_batch,
 )
+from .filter_core import (
+    SATURATION_THRESHOLD_DEFAULT,
+    SATURATION_WINDOW_RADIUS_DEFAULT,
+    analyze_saturation_batch,
+)
+from .progress import ProgressReporter, emit_progress
+from .trace_metrics import compute_peak_amplitudes
+from ..utils.trace_data import preprocess_traces
 
-CDF_BIN = 60
-OSCILLATION_CUTOFF = 0.6
 ZERO_PEAK_AMPLITUDE_CUTOFF = 40.0
+SATURATION_DROP_THRESHOLD_DEFAULT = 10.0
+SATURATION_RELABEL_MIN_PLATEAU_LENGTH_DEFAULT = 2
 RELABEL_LABEL_CHOICES = ("noise", "oscillation", "saturation")
 NOISE_RELABEL = "noise"
 OSCILLATION_RELABEL = "oscillation"
 SATURATION_RELABEL = "saturation"
 OSCILLATION_LABEL_KEY = "strange:oscillation"
+SATURATION_LABEL_KEY = "strange:saturation"
 ZERO_PEAK_LABEL_KEY = "normal:0"
 ONE_PEAK_LABEL_KEY = "normal:1"
 
@@ -34,6 +41,12 @@ def build_relabel_rows(
     peak_separation: float = 50.0,
     peak_prominence: float = 20.0,
     peak_width: float = 50.0,
+    bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
+    bitflip_min_count: int = BITFLIP_FILTER_MIN_COUNT_DEFAULT,
+    saturation_threshold: float = SATURATION_THRESHOLD_DEFAULT,
+    saturation_drop_threshold: float = SATURATION_DROP_THRESHOLD_DEFAULT,
+    saturation_window_radius: int = SATURATION_WINDOW_RADIUS_DEFAULT,
+    saturation_min_plateau_length: int = SATURATION_RELABEL_MIN_PLATEAU_LENGTH_DEFAULT,
     progress: ProgressReporter | None = None,
 ) -> tuple[np.ndarray, dict[str, tuple[int, int]]]:
     validate_relabel_label(label)
@@ -69,17 +82,11 @@ def build_relabel_rows(
         )
         batch_old_labels = [row.label_key for row in event_rows]
         if label == NOISE_RELABEL:
-            amplitudes = np.asarray(
-                [
-                    max_peak_amplitude(
-                        row=trace,
-                        peak_separation=peak_separation,
-                        peak_prominence=peak_prominence,
-                        peak_width=peak_width,
-                    )
-                    for trace in cleaned
-                ],
-                dtype=np.float32,
+            amplitudes = compute_peak_amplitudes(
+                cleaned,
+                peak_separation=peak_separation,
+                peak_prominence=peak_prominence,
+                peak_width=peak_width,
             )
             batch_new_labels = [
                 _relabel_noise(old_label=old_label, amplitude=float(amplitude))
@@ -88,14 +95,38 @@ def build_relabel_rows(
                 )
             ]
         elif label == OSCILLATION_RELABEL:
-            spectrum = compute_frequency_distribution(cleaned)
-            f60 = sample_cdf_points(
-                spectrum,
-                thresholds=np.asarray([CDF_BIN], dtype=np.int64),
-            )[:, 0]
+            segment_counts = count_qualified_bitflip_segments_batch(
+                cleaned,
+                baseline_threshold=bitflip_baseline_threshold,
+            )
             batch_new_labels = [
-                _relabel_oscillation(old_label=old_label, f60_value=float(f60_value))
-                for old_label, f60_value in zip(batch_old_labels, f60, strict=True)
+                _relabel_oscillation(
+                    old_label=old_label,
+                    segment_count=int(segment_count),
+                    min_count=bitflip_min_count,
+                )
+                for old_label, segment_count in zip(
+                    batch_old_labels, segment_counts, strict=True
+                )
+            ]
+        elif label == SATURATION_RELABEL:
+            saturation_batch = analyze_saturation_batch(
+                cleaned,
+                threshold=saturation_threshold,
+                drop_threshold=saturation_drop_threshold,
+                window_radius=saturation_window_radius,
+            )
+            batch_new_labels = [
+                _relabel_saturation(
+                    old_label=old_label,
+                    plateau_length=int(plateau_length),
+                    min_plateau_length=saturation_min_plateau_length,
+                )
+                for old_label, plateau_length in zip(
+                    batch_old_labels,
+                    saturation_batch.plateau_lengths,
+                    strict=True,
+                )
             ]
         else:
             raise ValueError(f"unsupported relabel label: {label}")
@@ -124,8 +155,6 @@ def build_relabel_rows(
 
 
 def validate_relabel_label(label: str) -> None:
-    if label == SATURATION_RELABEL:
-        raise NotImplementedError("relabel label 'saturation' is not implemented yet")
     if label not in RELABEL_LABEL_CHOICES:
         raise ValueError(f"unsupported relabel label: {label}")
 
@@ -150,6 +179,17 @@ def ratio_items_for_label(
                 metrics["normal1_to_oscillation"],
             ),
         ]
+    if label == SATURATION_RELABEL:
+        return [
+            (
+                "old strange:saturation -> new strange:saturation",
+                metrics["saturation_to_saturation"],
+            ),
+            (
+                "old normal:1 -> new strange:saturation",
+                metrics["normal1_to_saturation"],
+            ),
+        ]
     raise ValueError(f"unsupported relabel label: {label}")
 
 
@@ -167,9 +207,19 @@ def _relabel_noise(old_label: str, amplitude: float) -> str:
     return old_label
 
 
-def _relabel_oscillation(old_label: str, f60_value: float) -> str:
-    if f60_value < OSCILLATION_CUTOFF:
+def _relabel_oscillation(old_label: str, segment_count: int, min_count: int) -> str:
+    if segment_count >= min_count:
         return OSCILLATION_LABEL_KEY
+    return old_label
+
+
+def _relabel_saturation(
+    old_label: str,
+    plateau_length: int,
+    min_plateau_length: int,
+) -> str:
+    if plateau_length >= min_plateau_length:
+        return SATURATION_LABEL_KEY
     return old_label
 
 
@@ -211,6 +261,21 @@ def _build_ratio_metrics(
         )
         metrics["normal1_to_normal0"] = _label_transition_ratio(
             old_labels, new_labels, ONE_PEAK_LABEL_KEY, ZERO_PEAK_LABEL_KEY
+        )
+        return metrics
+
+    if label == SATURATION_RELABEL:
+        metrics["saturation_to_saturation"] = _label_transition_ratio(
+            old_labels,
+            new_labels,
+            SATURATION_LABEL_KEY,
+            SATURATION_LABEL_KEY,
+        )
+        metrics["normal1_to_saturation"] = _label_transition_ratio(
+            old_labels,
+            new_labels,
+            ONE_PEAK_LABEL_KEY,
+            SATURATION_LABEL_KEY,
         )
         return metrics
 

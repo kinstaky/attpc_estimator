@@ -125,7 +125,7 @@
         </div>
         <div class="trace-stage-hints">
           <span>Use J / K or arrows to navigate.</span>
-          <span>Press F to toggle the plot view.</span>
+          <span>Press F to cycle the plot view.</span>
         </div>
       </v-card-title>
 
@@ -183,7 +183,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  ref,
+  watch,
+} from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import TracePlot from "../components/TracePlot.vue";
@@ -194,6 +201,8 @@ const route = useRoute();
 const router = useRouter();
 const shell = useShellStore();
 const review = useReviewStore();
+const isActive = ref(false);
+let keydownAttached = false;
 
 const reviewSourceOptions = [
   { title: "Labeled traces", value: "label_set" },
@@ -207,7 +216,8 @@ const familyOptions = [
 
 const visualModeOptions = [
   { title: "Raw", value: "raw" },
-  { title: "Analysis", value: "analysis" },
+  { title: "CDF", value: "cdf" },
+  { title: "Curvature", value: "curvature" },
 ];
 
 const runOptions = computed(() =>
@@ -268,9 +278,36 @@ async function submitReview() {
   await router.replace({ name: "review", query: review.buildQuery() });
 }
 
+function hasReviewQuery(query) {
+  return typeof query.source === "string";
+}
+
+function reviewQueryMatchesState(query) {
+  const source = query.source === "filter_file" ? "filter_file" : "label_set";
+  if (review.state.source !== source) {
+    return false;
+  }
+  if (source === "filter_file") {
+    const filterFile = typeof query.filterFile === "string" ? query.filterFile : "";
+    return review.state.filterFile === filterFile;
+  }
+  const queryRun = query.run === undefined ? null : Number(query.run);
+  const queryFamily = query.family === "strange" ? "strange" : "normal";
+  const queryLabel = typeof query.label === "string" ? query.label : "";
+  return (
+    review.state.run === queryRun
+    && review.state.family === queryFamily
+    && review.state.label === queryLabel
+  );
+}
+
 async function syncFromRoute(query) {
+  if (!hasReviewQuery(query)) {
+    return;
+  }
+  const shouldReload = !reviewQueryMatchesState(query) || !review.state.currentTrace;
   review.applyQuery(query);
-  if (query.source) {
+  if (shouldReload) {
     try {
       await review.loadReviewSet();
     } catch {
@@ -309,18 +346,43 @@ async function onKeydown(event) {
   }
 }
 
-onMounted(() => {
-  void syncFromRoute(route.query);
+function attachKeydownListener() {
+  if (keydownAttached) {
+    return;
+  }
   window.addEventListener("keydown", onKeydown);
+  keydownAttached = true;
+}
+
+function detachKeydownListener() {
+  if (!keydownAttached) {
+    return;
+  }
+  window.removeEventListener("keydown", onKeydown);
+  keydownAttached = false;
+}
+
+onActivated(() => {
+  isActive.value = true;
+  attachKeydownListener();
+  void syncFromRoute(route.query);
+});
+
+onDeactivated(() => {
+  isActive.value = false;
+  detachKeydownListener();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKeydown);
+  detachKeydownListener();
 });
 
 watch(
   () => route.query,
   (query) => {
+    if (!isActive.value || route.name !== "review") {
+      return;
+    }
     void syncFromRoute(query);
   },
   { deep: true },

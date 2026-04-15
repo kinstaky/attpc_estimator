@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from ..process.amplitude import (
-    build_amplitude_histogram,
-    build_labeled_amplitude_histograms,
+from ..process.baseline import (
+    build_baseline_histogram,
+    build_labeled_baseline_histograms,
 )
 from ..storage.run_paths import format_run_id, resolve_run_file
 from .config import parse_run, parse_toml_config, root_config_values, table_config_values
@@ -25,17 +25,14 @@ def main() -> None:
 
     if args.labeled:
         with tqdm_reporter("Processing labeled pad traces") as progress:
-            payload = build_labeled_amplitude_histograms(
+            payload = build_labeled_baseline_histograms(
                 trace_path=trace_root,
                 workspace=workspace,
                 run=run_id,
                 baseline_window_scale=args.baseline_window_scale,
-                peak_separation=args.peak_separation,
-                peak_prominence=args.peak_prominence,
-                peak_width=args.peak_width,
                 progress=progress,
             )
-        output_path = workspace / f"run_{run_name}_labeled_amp.npz"
+        output_path = workspace / f"run_{run_name}_labeled_baseline.npz"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             output_path,
@@ -44,8 +41,9 @@ def main() -> None:
             label_titles=payload["label_titles"],
             trace_counts=payload["trace_counts"],
             histograms=payload["histograms"],
+            bin_centers=payload["bin_centers"],
         )
-        print(f"saved labeled amplitude histograms to {output_path}")
+        print(f"saved labeled baseline histograms to {output_path}")
         print(f"labels: {payload['label_keys'].tolist()}")
         print(f"trace counts: {payload['trace_counts'].tolist()}")
         return
@@ -56,20 +54,22 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
 
     with tqdm_reporter("Processing pad traces") as progress:
-        histogram = build_amplitude_histogram(
+        payload = build_baseline_histogram(
             trace_file_path=trace_file_path,
             baseline_window_scale=args.baseline_window_scale,
-            peak_separation=args.peak_separation,
-            peak_prominence=args.peak_prominence,
-            peak_width=args.peak_width,
             progress=progress,
         )
-    output_path = workspace / f"run_{run_name}_amp.npy"
+    output_path = workspace / f"run_{run_name}_baseline.npz"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(output_path, histogram)
+    np.savez(
+        output_path,
+        trace_count=payload["trace_count"],
+        histogram=payload["histogram"],
+        bin_centers=payload["bin_centers"],
+    )
 
-    print(f"saved amplitude histogram with shape {histogram.shape} to {output_path}")
-    print(f"total histogram count: {int(histogram.sum())}")
+    print(f"saved baseline histograms to {output_path}")
+    print(f"trace count: {int(payload['trace_count'])}")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -81,20 +81,10 @@ def _parse_args() -> argparse.Namespace:
     baseline_config = table_config_values(
         payload,
         table="baseline",
-        allowed_keys={"fft_window_scale"},
-    )
-    amplitude_config = table_config_values(
-        payload,
-        table="amplitude",
-        allowed_keys={
-            "peak_separation",
-            "peak_prominence",
-            "peak_width",
-            "labeled",
-        },
+        allowed_keys={"fft_window_scale", "labeled"},
     )
     parser = argparse.ArgumentParser(
-        description="Compute peak-amplitude histograms for all traces or labeled traces",
+        description="Compute preprocessed-trace baseline histograms for all traces or labeled traces",
     )
     parser.add_argument(
         "-c",
@@ -129,30 +119,12 @@ def _parse_args() -> argparse.Namespace:
         "--baseline-window-scale",
         type=float,
         default=baseline_config.get("fft_window_scale", 10.0),
-        help="Baseline-removal filter scale used before taking the FFT",
-    )
-    parser.add_argument(
-        "--peak-separation",
-        type=float,
-        default=amplitude_config.get("peak_separation", 50.0),
-        help="Minimum separation between peaks",
-    )
-    parser.add_argument(
-        "--peak-prominence",
-        type=float,
-        default=amplitude_config.get("peak_prominence", 20.0),
-        help="Prominence of peaks",
-    )
-    parser.add_argument(
-        "--peak-width",
-        type=float,
-        default=amplitude_config.get("peak_width", 50.0),
-        help="Maximum width of peaks",
+        help="Baseline-removal filter scale used before accumulating sample values",
     )
     parser.add_argument(
         "--labeled",
         action="store_true",
-        default=bool(amplitude_config.get("labeled", False)),
+        default=bool(baseline_config.get("labeled", False)),
         help="Process only labeled traces for the selected run and save one histogram per label",
     )
     return parser.parse_args()

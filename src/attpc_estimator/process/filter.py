@@ -1,39 +1,32 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Sequence
 
 import numpy as np
 
 from .progress import ProgressReporter, emit_progress
-from ..process.amplitude import max_peak_amplitude
+from .filter_core import AmplitudeFilterCore, FilterCore
 from ..storage.run_paths import resolve_run_file
-from ..utils.trace_data import compute_frequency_distribution, sample_cdf_points
 from .trace_scan import scan_cleaned_trace_batches
 
 DEFAULT_TRACE_LIMIT = 1000
-OSCILLATION_CDF_BIN = 60
-OSCILLATION_CUTOFF = 0.6
-UNLIMITED_TRACE_LIMIT = -1
+UNLIMITED_TRACE_LIMIT = 0
 
 
 def build_filter_rows(
     trace_path: Path,
     run: int,
-    amplitude_range: tuple[float, float] | None = None,
-    oscillation: bool = False,
+    filter_cores: Sequence[FilterCore],
     baseline_window_scale: float = 10.0,
-    peak_separation: float = 50.0,
-    peak_prominence: float = 20.0,
-    peak_width: float = 50.0,
     limit: int = DEFAULT_TRACE_LIMIT,
     progress: ProgressReporter | None = None,
 ) -> np.ndarray:
-    if amplitude_range is None and not oscillation:
-        raise ValueError("at least one filter criterion is required")
-    if amplitude_range is not None and amplitude_range[0] > amplitude_range[1]:
-        raise ValueError("amplitude minimum must be less than or equal to the maximum")
-    if limit == 0 or limit < UNLIMITED_TRACE_LIMIT:
-        raise ValueError("limit must be positive or use --unlimit")
+    active_cores = list(filter_cores)
+    if not active_cores:
+        raise ValueError("at least one filter core is required")
+    if limit < UNLIMITED_TRACE_LIMIT:
+        raise ValueError("limit must be non-negative")
 
     run_file = resolve_run_file(trace_path, run)
 
@@ -50,18 +43,16 @@ def build_filter_rows(
     def handle_batch(event_id: int, cleaned: np.ndarray) -> bool | None:
         if not unlimited and len(selected_rows) >= limit:
             return False
-        oscillation_values = _compute_oscillation_values(cleaned) if oscillation else None
+        prepared_batches = [core.prepare_batch(cleaned) for core in active_cores]
 
         for trace_id, row in enumerate(cleaned):
-            if not _matches_filter(
-                row=row,
-                trace_id=trace_id,
-                amplitude_range=amplitude_range,
-                oscillation=oscillation,
-                oscillation_values=oscillation_values,
-                peak_separation=peak_separation,
-                peak_prominence=peak_prominence,
-                peak_width=peak_width,
+            if not all(
+                core.matches(
+                    trace_id=trace_id,
+                    row=row,
+                    prepared=prepared,
+                )
+                for core, prepared in zip(active_cores, prepared_batches, strict=True)
             ):
                 continue
             selected_rows.append((run, event_id, trace_id))
@@ -104,12 +95,16 @@ def build_amplitude_filter_rows(
     return build_filter_rows(
         trace_path=trace_path,
         run=run,
-        amplitude_range=(min_amplitude, max_amplitude),
-        oscillation=False,
+        filter_cores=[
+            AmplitudeFilterCore(
+                min_amplitude=min_amplitude,
+                max_amplitude=max_amplitude,
+                peak_separation=peak_separation,
+                peak_prominence=peak_prominence,
+                peak_width=peak_width,
+            )
+        ],
         baseline_window_scale=baseline_window_scale,
-        peak_separation=peak_separation,
-        peak_prominence=peak_prominence,
-        peak_width=peak_width,
         limit=limit,
         progress=progress,
     )
@@ -131,57 +126,11 @@ def normalize_amplitude_range(
 
 def default_output_name(
     run_token: str,
-    amplitude_range: tuple[float, float] | None,
-    oscillation: bool,
+    filter_cores: Sequence[FilterCore],
 ) -> str:
     parts = [f"filter_run_{run_token}"]
-    if oscillation:
-        parts.append("oscillation")
-    if amplitude_range is not None:
-        parts.append(
-            f"amp_{_format_bound(amplitude_range[0])}_{_format_bound(amplitude_range[1])}"
-        )
+    for core in filter_cores:
+        token = core.output_token()
+        if token:
+            parts.append(token)
     return "_".join(parts) + ".npy"
-
-
-def _compute_oscillation_values(cleaned: np.ndarray) -> np.ndarray:
-    spectrum = compute_frequency_distribution(cleaned)
-    return sample_cdf_points(
-        spectrum,
-        thresholds=np.asarray([OSCILLATION_CDF_BIN], dtype=np.int64),
-    )[:, 0]
-
-
-def _matches_filter(
-    *,
-    row: np.ndarray,
-    trace_id: int,
-    amplitude_range: tuple[float, float] | None,
-    oscillation: bool,
-    oscillation_values: np.ndarray | None,
-    peak_separation: float,
-    peak_prominence: float,
-    peak_width: float,
-) -> bool:
-    if oscillation:
-        if oscillation_values is None:
-            return False
-        if float(oscillation_values[trace_id]) >= OSCILLATION_CUTOFF:
-            return False
-
-    if amplitude_range is not None:
-        amplitude = max_peak_amplitude(
-            row=row,
-            peak_separation=peak_separation,
-            peak_prominence=peak_prominence,
-            peak_width=peak_width,
-        )
-        if not (amplitude_range[0] <= amplitude <= amplitude_range[1]):
-            return False
-
-    return True
-
-
-def _format_bound(value: float) -> str:
-    token = f"{value:g}"
-    return token.replace("-", "neg").replace(".", "p")

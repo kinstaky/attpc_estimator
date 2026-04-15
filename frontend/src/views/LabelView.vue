@@ -38,7 +38,8 @@
             @update:model-value="labelStore.setVisualMode"
           >
             <v-btn value="raw">Raw</v-btn>
-            <v-btn value="analysis">Analysis</v-btn>
+            <v-btn value="cdf">CDF</v-btn>
+            <v-btn value="curvature">Curvature</v-btn>
           </v-btn-toggle>
         </div>
       </div>
@@ -211,7 +212,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  ref,
+  watch,
+} from "vue";
 import { useRouter } from "vue-router";
 
 import AddStrangeLabelDialog from "../components/AddStrangeLabelDialog.vue";
@@ -247,6 +255,8 @@ const strangeItems = computed(() =>
 );
 
 const strangeLabels = computed(() => shell.state.bootstrap?.strangeLabels || []);
+const isActive = ref(false);
+let keydownAttached = false;
 
 const deleteDialogOpen = computed({
   get: () => Boolean(labelStore.state.deleteDialogLabel),
@@ -280,7 +290,14 @@ const isSelectionMode = computed(
 );
 
 async function ensureSession() {
-  await labelStore.enterLabelMode(shell.state.selectedRun);
+  if (shell.state.selectedRun === null || shell.state.selectedRun === undefined) {
+    return;
+  }
+  try {
+    await labelStore.enterLabelMode(shell.state.selectedRun);
+  } catch {
+    // Store state already carries the error.
+  }
 }
 
 async function saveStrangeLabel(payload) {
@@ -380,18 +397,48 @@ async function onKeydown(event) {
   }
 }
 
-onMounted(() => {
-  void ensureSession();
+function attachKeydownListener() {
+  if (keydownAttached) {
+    return;
+  }
   window.addEventListener("keydown", onKeydown);
+  keydownAttached = true;
+}
+
+function detachKeydownListener() {
+  if (!keydownAttached) {
+    return;
+  }
+  window.removeEventListener("keydown", onKeydown);
+  keydownAttached = false;
+}
+
+onActivated(() => {
+  isActive.value = true;
+  attachKeydownListener();
+  if (
+    !labelStore.state.currentTrace
+    || labelStore.state.activeRun !== shell.state.selectedRun
+  ) {
+    void ensureSession();
+  }
+});
+
+onDeactivated(() => {
+  isActive.value = false;
+  detachKeydownListener();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKeydown);
+  detachKeydownListener();
 });
 
 watch(
   () => shell.state.selectedRun,
   () => {
+    if (!isActive.value) {
+      return;
+    }
     void ensureSession();
   },
 );

@@ -8,9 +8,13 @@ import numpy as np
 
 import attpc_estimator.process.trace_scan as trace_scan
 from attpc_estimator.cli.filter import main as filter_main
+from attpc_estimator.process.filter_core import (
+    AmplitudeFilterCore,
+    CdfFilterCore,
+)
 from attpc_estimator.storage.labels_db import LabelRepository
 from attpc_estimator.process.cdf import CDF_THRESHOLDS
-from attpc_estimator.process.filter import build_filter_rows
+from attpc_estimator.process.filter import build_filter_rows, default_output_name
 from attpc_estimator.service.estimator import EstimatorService
 from tests.hdf5_fixtures import write_events_hdf5
 
@@ -83,10 +87,15 @@ def test_build_filter_rows_amplitude_is_inclusive_and_ordered(tmp_path) -> None:
     rows = build_filter_rows(
         trace_path=trace_root,
         run=8,
-        amplitude_range=(20.0, 50.0),
-        peak_separation=20.0,
-        peak_prominence=5.0,
-        peak_width=40.0,
+        filter_cores=[
+            AmplitudeFilterCore(
+                min_amplitude=20.0,
+                max_amplitude=50.0,
+                peak_separation=20.0,
+                peak_prominence=5.0,
+                peak_width=40.0,
+            )
+        ],
     )
 
     assert rows.dtype == np.int64
@@ -97,7 +106,7 @@ def test_build_filter_rows_amplitude_is_inclusive_and_ordered(tmp_path) -> None:
     ]
 
 
-def test_build_filter_rows_oscillation_uses_f60_cutoff(tmp_path) -> None:
+def test_build_filter_rows_cdf_uses_f60_cutoff(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     _ = workspace
@@ -117,7 +126,7 @@ def test_build_filter_rows_oscillation_uses_f60_cutoff(tmp_path) -> None:
     rows = build_filter_rows(
         trace_path=trace_root,
         run=8,
-        oscillation=True,
+        filter_cores=[CdfFilterCore()],
         baseline_window_scale=10.0,
     )
 
@@ -140,10 +149,15 @@ def test_build_filter_rows_skips_bad_events_in_v2_layout(tmp_path) -> None:
     rows = build_filter_rows(
         trace_path=trace_root,
         run=8,
-        amplitude_range=(20.0, 50.0),
-        peak_separation=20.0,
-        peak_prominence=5.0,
-        peak_width=40.0,
+        filter_cores=[
+            AmplitudeFilterCore(
+                min_amplitude=20.0,
+                max_amplitude=50.0,
+                peak_separation=20.0,
+                peak_prominence=5.0,
+                peak_width=40.0,
+            )
+        ],
     )
 
     assert rows.tolist() == [[8, 1, 1]]
@@ -174,10 +188,15 @@ def test_build_filter_rows_stops_scanning_after_reaching_limit(
     rows = build_filter_rows(
         trace_path=trace_root,
         run=8,
-        amplitude_range=(20.0, 50.0),
-        peak_separation=20.0,
-        peak_prominence=5.0,
-        peak_width=40.0,
+        filter_cores=[
+            AmplitudeFilterCore(
+                min_amplitude=20.0,
+                max_amplitude=50.0,
+                peak_separation=20.0,
+                peak_prominence=5.0,
+                peak_width=40.0,
+            )
+        ],
         limit=1,
     )
 
@@ -200,10 +219,15 @@ def test_build_filter_rows_reports_match_progress_when_limited(tmp_path) -> None
     rows = build_filter_rows(
         trace_path=trace_root,
         run=8,
-        amplitude_range=(20.0, 50.0),
-        peak_separation=20.0,
-        peak_prominence=5.0,
-        peak_width=40.0,
+        filter_cores=[
+            AmplitudeFilterCore(
+                min_amplitude=20.0,
+                max_amplitude=50.0,
+                peak_separation=20.0,
+                peak_prominence=5.0,
+                peak_width=40.0,
+            )
+        ],
         limit=1,
         progress=progress_updates.append,
     )
@@ -212,6 +236,52 @@ def test_build_filter_rows_reports_match_progress_when_limited(tmp_path) -> None
     assert [update.current for update in progress_updates] == [0, 1]
     assert all(update.total == 1 for update in progress_updates)
     assert all(update.unit == "trace" for update in progress_updates)
+
+
+def test_build_filter_rows_keeps_only_traces_matching_all_filter_cores(tmp_path) -> None:
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
+    write_run_file(
+        trace_root / "run_0008.h5",
+        {
+            1: [
+                _sine_trace(period=4.0, amplitude=30.0),
+                _sine_trace(period=4.0, amplitude=80.0),
+                _gaussian_trace(40.0),
+            ],
+        },
+    )
+
+    rows = build_filter_rows(
+        trace_path=trace_root,
+        run=8,
+        filter_cores=[
+            CdfFilterCore(),
+            AmplitudeFilterCore(
+                min_amplitude=20.0,
+                max_amplitude=50.0,
+                peak_separation=20.0,
+                peak_prominence=5.0,
+                peak_width=40.0,
+            ),
+        ],
+        baseline_window_scale=10.0,
+    )
+
+    assert rows.tolist() == [[8, 1, 0]]
+
+
+def test_default_output_name_uses_filter_core_tokens_in_order() -> None:
+    assert default_output_name(
+        "0008",
+        [
+            CdfFilterCore(),
+            AmplitudeFilterCore(
+                min_amplitude=20.0,
+                max_amplitude=50.0,
+            ),
+        ],
+    ) == "filter_run_0008_cdf_amp_20_50.npy"
 
 
 def test_filter_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatch) -> None:
@@ -223,7 +293,11 @@ def test_filter_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatc
                 f'trace_path = "{trace_root}"',
                 f'workspace = "{workspace}"',
                 "run = 8",
-                "amplitude = [20, 50]",
+                "",
+                "[filter]",
+                "use_amplitude = true",
+                "min_amplitude = 20",
+                "max_amplitude = 50",
             ]
         ),
         encoding="utf-8",

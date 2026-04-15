@@ -5,15 +5,15 @@ import { useShellStore } from "./shell";
 import type {
   HistogramJobMessage,
   HistogramJobProgress,
+  HistogramMetric,
+  HistogramMode,
   HistogramPayload,
   HistogramSeries,
+  HistogramVariant,
 } from "../types";
 
 const DEFAULT_CDF_PROJECTION_BIN = 60;
 const LABEL_ORDER_SUFFIX = ":labeled";
-
-type HistogramMetric = "cdf" | "amplitude";
-type HistogramMode = "all" | "labeled" | "filtered";
 type ScaleMode = "linear" | "log";
 type CdfRenderMode = "2d" | "projection";
 
@@ -21,6 +21,8 @@ interface HistogramState {
   selectedRun: number | null;
   selectedMetric: HistogramMetric;
   selectedMode: HistogramMode;
+  selectedBitflipVariant: Extract<HistogramVariant, "baseline" | "value" | "length" | "count">;
+  selectedSaturationVariant: Extract<HistogramVariant, "drop" | "length">;
   selectedHistogramFilter: string;
   selectedHistogramVeto: boolean;
   filteredPlotDirty: boolean;
@@ -38,6 +40,8 @@ const state = reactive<HistogramState>({
   selectedRun: null,
   selectedMetric: "cdf",
   selectedMode: "all",
+  selectedBitflipVariant: "baseline",
+  selectedSaturationVariant: "drop",
   selectedHistogramFilter: "",
   selectedHistogramVeto: false,
   filteredPlotDirty: false,
@@ -102,6 +106,16 @@ function ensureInitialized(): void {
   }
 }
 
+function currentVariant(): HistogramVariant | "" {
+  if (state.selectedMetric === "bitflip") {
+    return state.selectedBitflipVariant;
+  }
+  if (state.selectedMetric === "saturation") {
+    return state.selectedSaturationVariant;
+  }
+  return "";
+}
+
 function getAvailability() {
   const shell = useShellStore();
   if (state.selectedRun === null || !shell.state.bootstrap) {
@@ -156,6 +170,7 @@ async function loadHistogram(forceFiltered = false): Promise<void> {
         state.selectedMetric,
         state.selectedMode,
         state.selectedRun,
+        currentVariant(),
         "",
         false,
       );
@@ -191,6 +206,7 @@ async function loadFilteredHistogram(loadId: number): Promise<HistogramPayload> 
     state.selectedMetric,
     "filtered",
     state.selectedRun,
+    currentVariant(),
     state.selectedHistogramFilter,
     state.selectedHistogramVeto,
   );
@@ -281,6 +297,23 @@ async function setSelectedRun(run: number | string | null): Promise<void> {
 
 async function setSelectedMetric(metric: HistogramMetric): Promise<void> {
   state.selectedMetric = metric;
+  await loadHistogram();
+}
+
+async function setSelectedVariant(variant: HistogramVariant): Promise<void> {
+  if (
+    state.selectedMetric === "bitflip"
+    && (variant === "baseline" || variant === "value" || variant === "length" || variant === "count")
+  ) {
+    state.selectedBitflipVariant = variant;
+  } else if (
+    state.selectedMetric === "saturation"
+    && (variant === "drop" || variant === "length")
+  ) {
+    state.selectedSaturationVariant = variant;
+  } else {
+    return;
+  }
   await loadHistogram();
 }
 
@@ -386,6 +419,7 @@ export function useHistogramStore() {
     plotFilteredHistogram,
     setSelectedRun,
     setSelectedMetric,
+    setSelectedVariant,
     setSelectedMode,
     setSelectedHistogramFilter,
     setSelectedHistogramVeto,

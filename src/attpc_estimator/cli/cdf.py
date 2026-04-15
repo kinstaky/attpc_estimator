@@ -15,6 +15,8 @@ from ..storage.run_paths import format_run_id, resolve_run_file
 from .config import (
     parse_run,
     parse_toml_config,
+    root_config_values,
+    table_config_values,
 )
 from .progress import tqdm_reporter
 
@@ -74,15 +76,15 @@ def main() -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    config_path, config = parse_toml_config(
-        sys.argv[1:],
-        allowed_keys={
-            "trace_path",
-            "run",
-            "workspace",
-            "baseline_window_scale",
-            "labeled",
-        },
+    config_path, payload = parse_toml_config(sys.argv[1:])
+    config = root_config_values(
+        payload,
+        allowed_keys={"trace_path", "run", "workspace"},
+    )
+    cdf_config = table_config_values(
+        payload,
+        table="cdf",
+        allowed_keys={"baseline_window_scale", "labeled"},
     )
     parser = argparse.ArgumentParser(
         description="Compute CDF histograms for all traces or labeled traces in a single run",
@@ -119,13 +121,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--baseline-window-scale",
         type=float,
-        default=config.get("baseline_window_scale", 20.0),
+        default=cdf_config.get("baseline_window_scale", 20.0),
         help="Baseline-removal filter scale used before taking the FFT",
     )
     parser.add_argument(
         "--labeled",
         action="store_true",
-        default=bool(config.get("labeled", False)),
+        default=bool(cdf_config.get("labeled", False)),
         help="Build one CDF histogram per trace label for the selected run",
     )
     return parser.parse_args()

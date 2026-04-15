@@ -16,13 +16,17 @@
       <h1>Unsupported app type.</h1>
     </section>
 
-    <v-layout v-else class="app-layout">
+    <div v-else class="app-layout">
       <MainNavRail />
 
       <v-main class="app-main">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <keep-alive>
+            <component :is="Component" />
+          </keep-alive>
+        </router-view>
       </v-main>
-    </v-layout>
+    </div>
   </v-app>
 </template>
 

@@ -1,7 +1,9 @@
 import type {
   BootstrapPayload,
   HistogramJobCreateResponse,
+  HistogramMetric,
   HistogramPayload,
+  HistogramVariant,
   LabelAssignResponse,
   SessionPayload,
   SessionResponse,
@@ -142,9 +144,10 @@ export function deleteStrangeLabel(name: string): Promise<Array<{ name: string; 
 }
 
 export function getHistogram(
-  metric: "cdf" | "amplitude",
+  metric: HistogramMetric,
   mode: "all" | "labeled" | "filtered",
   run: number,
+  variant: HistogramVariant | "" = "",
   filterFile = "",
   veto = false,
 ): Promise<HistogramPayload> {
@@ -153,6 +156,9 @@ export function getHistogram(
     mode,
     run: String(run),
   });
+  if (variant) {
+    params.set("variant", variant);
+  }
   if (filterFile) {
     params.set("filterFile", filterFile);
   }
@@ -163,9 +169,10 @@ export function getHistogram(
 }
 
 export function createHistogramJob(
-  metric: "cdf" | "amplitude",
+  metric: HistogramMetric,
   mode: "filtered",
   run: number,
+  variant: HistogramVariant | "" = "",
   filterFile: string,
   veto = false,
 ): Promise<HistogramJobCreateResponse> {
@@ -175,6 +182,7 @@ export function createHistogramJob(
       metric,
       mode,
       run,
+      variant: variant || undefined,
       filterFile,
       veto,
     }),
