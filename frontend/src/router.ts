@@ -26,6 +26,11 @@ const routes: RouteRecordRaw[] = [
     name: "review",
     component: () => import("./views/TraceReviewView.vue"),
   },
+  {
+    path: "/pointcloud",
+    name: "pointcloud",
+    component: () => import("./views/PointcloudView.vue"),
+  },
 ];
 
 const router = createRouter({

@@ -69,6 +69,7 @@ const items = [
   { to: "/histograms", title: "Histograms", icon: "mdi-chart-box-outline" },
   { to: "/mapping", title: "Mapping", icon: "mdi-vector-polygon" },
   { to: "/review", title: "Review", icon: "mdi-file-search-outline" },
+  { to: "/pointcloud", title: "Pointcloud", icon: "mdi-cube-outline" },
 ];
 
 const selectedRunLabel = computed(() => {

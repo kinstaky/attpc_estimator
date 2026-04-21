@@ -7,13 +7,16 @@ name = "attpc-estimator"
 version = "0.1.0"
 description = "Local trace labeling app with FastAPI, Vue, and Plotly"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
+  "attpc-pointcloud",
+  "attpc-storage",
   "fastapi>=0.115,<1.0",
   "h5py>=3.16.0",
   "numba>=0.62,<1.0",
   "numpy>=2.4.3",
   "polars>=1.39.3",
+  "scikit-learn>=1.8.0",
   "scipy>=1.17.1",
   "tqdm>=4.67,<5.0",
   "uvicorn[standard]>=0.30,<1.0",
@@ -28,9 +31,14 @@ filter = "attpc_estimator.cli.filter:main"
 relabel = "attpc_estimator.cli.relabel:main"
 saturation = "attpc_estimator.cli.saturation:main"
 webui = "attpc_estimator.cli.webui:main"
+pointcloud = "attpc_estimator.pipeline.pointcloud:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.uv.sources]
+attpc-storage = { path = "../attpc_storage", editable = true }
+attpc-pointcloud = { path = "../attpc_pointcloud", editable = true }
 
 [dependency-groups]
 dev = [

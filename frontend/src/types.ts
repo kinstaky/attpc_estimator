@@ -93,6 +93,8 @@ export interface BootstrapPayload {
   databaseFile: string;
   runs: number[];
   eventRanges: Record<string, EventIdRange>;
+  pointcloudRuns: number[];
+  pointcloudEventRanges: Record<string, EventIdRange>;
   filterFiles: FilterFileItem[];
   histogramAvailability: Record<
     string,
@@ -192,4 +194,53 @@ export interface SessionResponse {
   session: SessionPayload;
   trace?: TracePayload | null;
   traceCount?: number;
+}
+
+export interface PointcloudProcessing {
+  fftWindowScale: number;
+  micromegasTimeBucket: number;
+  windowTimeBucket: number;
+  detectorLength: number;
+}
+
+export interface PointcloudHit {
+  traceId: number;
+  x: number;
+  y: number;
+  z: number;
+  amplitude: number;
+  integral: number;
+  padId: number;
+  timeBucket: number;
+  scale: number;
+}
+
+export interface PointcloudEventPayload {
+  run: number;
+  eventId: number;
+  eventIdRange: EventIdRange;
+  hits: PointcloudHit[];
+  processing: PointcloudProcessing;
+}
+
+export interface PointcloudPeak {
+  timeBucket: number;
+  amplitude: number;
+  integral: number;
+  z: number;
+  padId: number;
+}
+
+export interface PointcloudTraceSeries {
+  traceId: number;
+  raw: number[];
+  trace: number[];
+  peaks: PointcloudPeak[];
+}
+
+export interface PointcloudTracePayload {
+  run: number;
+  eventId: number;
+  baselineWindowScale: number;
+  traces: PointcloudTraceSeries[];
 }

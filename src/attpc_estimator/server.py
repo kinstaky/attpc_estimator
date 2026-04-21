@@ -45,6 +45,12 @@ class HistogramJobRequest(BaseModel):
     veto: bool = False
 
 
+class PointcloudTraceRequest(BaseModel):
+    run: int
+    eventId: int
+    traceIds: list[int]
+
+
 def create_app(
     service: EstimatorService,
     frontend_dist: Path,
@@ -218,6 +224,28 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
                     return
         except WebSocketDisconnect:
             return
+
+    @router.get("/pointcloud/event")
+    def pointcloud_event(run: int, eventId: int) -> dict:
+        try:
+            return service.get_pointcloud_event(run=run, event_id=eventId)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud/traces")
+    def pointcloud_traces(request: PointcloudTraceRequest) -> dict:
+        try:
+            return service.get_pointcloud_traces(
+                run=request.run,
+                event_id=request.eventId,
+                trace_ids=request.traceIds,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return router
 

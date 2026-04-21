@@ -90,7 +90,7 @@ def build_labeled_cdf_histograms(
     }
 
 
-@njit(cache=True)
+@njit(cache=False)
 def _accumulate_cdf_histogram_numba(samples: np.ndarray, histogram: np.ndarray) -> None:
     row_count, column_count = samples.shape
     value_bin_count = histogram.shape[1]
@@ -107,7 +107,7 @@ def _accumulate_cdf_histogram_numba(samples: np.ndarray, histogram: np.ndarray) 
             histogram[column_index, value_bin_index] += 1
 
 
-@njit(cache=True)
+@njit(cache=False)
 def _accumulate_grouped_histograms_numba(
     samples: np.ndarray,
     label_indices: np.ndarray,

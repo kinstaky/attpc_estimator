@@ -21,6 +21,7 @@ from .labeling import (
     normalize_shortcut,
     normal_summary,
 )
+from .pointcloud import PointcloudService
 from .traces import DirectTraceSource, TraceSource
 from .traces.payload import serialize_trace_payload
 from ..utils.trace_data import describe_trace_events
@@ -85,6 +86,11 @@ class EstimatorService:
             saturation_drop_threshold=saturation_drop_threshold,
             saturation_window_radius=saturation_window_radius,
         )
+        self.pointcloud = PointcloudService(
+            trace_path=trace_path,
+            workspace=workspace,
+            baseline_window_scale=baseline_window_scale,
+        )
         resolved_default_run = self._resolve_initial_run(default_run)
         self.session = SessionState(mode="label", run=resolved_default_run)
         self._sources: dict[tuple[Any, ...], TraceSource | DirectTraceSource] = {}
@@ -94,10 +100,12 @@ class EstimatorService:
         for source in self._sources.values():
             source.close()
         self._sources.clear()
+        self.pointcloud.close()
         self.repository.connection.close()
 
     def bootstrap_state(self) -> dict[str, Any]:
         histogram_bootstrap = self.histograms.bootstrap_state()
+        pointcloud_bootstrap = self.pointcloud.bootstrap_state()
         return {
             "appType": "merged",
             "workspace": str(self.workspace),
@@ -110,6 +118,8 @@ class EstimatorService:
             },
             "filterFiles": histogram_bootstrap["filterFiles"],
             "histogramAvailability": histogram_bootstrap["histogramAvailability"],
+            "pointcloudRuns": pointcloud_bootstrap["runs"],
+            "pointcloudEventRanges": pointcloud_bootstrap["eventRanges"],
             "normalSummary": normal_summary(self.repository),
             "strangeSummary": self.repository.get_strange_counts(),
             "strangeLabels": self.repository.list_strange_labels(),
@@ -377,6 +387,18 @@ class EstimatorService:
         after_index: int,
     ) -> tuple[int, dict] | None:
         return self.histograms.next_job_message(job_id, after_index)
+
+    def get_pointcloud_event(self, *, run: int, event_id: int) -> dict[str, Any]:
+        return self.pointcloud.get_event(run=run, event_id=event_id)
+
+    def get_pointcloud_traces(
+        self,
+        *,
+        run: int,
+        event_id: int,
+        trace_ids: list[int],
+    ) -> dict[str, Any]:
+        return self.pointcloud.get_traces(run=run, event_id=event_id, trace_ids=trace_ids)
 
     def _resolve_run(self, run: int | None) -> int:
         if run is not None:

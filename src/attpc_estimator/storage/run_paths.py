@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 DEFAULT_LABELS_DB_FILENAME = "labels.db"
+DEFAULT_POINTCLOUD_DIRNAME = "pointcloud"
 
 
 def format_run_id(run: int | str) -> str:
@@ -67,3 +68,11 @@ def extract_run_id(trace_file_path: Path) -> int:
 
 def labels_db_path(workspace: Path) -> Path:
     return workspace / DEFAULT_LABELS_DB_FILENAME
+
+
+def pointcloud_dir(workspace: Path) -> Path:
+    return workspace / DEFAULT_POINTCLOUD_DIRNAME
+
+
+def pointcloud_run_path(workspace: Path, run: int | str) -> Path:
+    return pointcloud_dir(workspace) / f"run_{format_run_id(run)}.h5"

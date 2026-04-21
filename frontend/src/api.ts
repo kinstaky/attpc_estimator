@@ -6,6 +6,8 @@ import type {
   HistogramVariant,
   LabelAssignResponse,
   MappingPad,
+  PointcloudEventPayload,
+  PointcloudTracePayload,
   SessionPayload,
   SessionResponse,
   StrangeLabel,
@@ -224,4 +226,30 @@ export function histogramJobSocketUrl(jobId: string): string {
   const url = new URL(`/api/histograms/jobs/${jobId}`, window.location.href);
   url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
+}
+
+export function getPointcloudEvent(
+  run: number,
+  eventId: number,
+): Promise<PointcloudEventPayload> {
+  const params = new URLSearchParams({
+    run: String(run),
+    eventId: String(eventId),
+  });
+  return request<PointcloudEventPayload>(`/api/pointcloud/event?${params.toString()}`);
+}
+
+export function getPointcloudTraces(
+  run: number,
+  eventId: number,
+  traceIds: number[],
+): Promise<PointcloudTracePayload> {
+  return request<PointcloudTracePayload>("/api/pointcloud/traces", {
+    method: "POST",
+    body: JSON.stringify({
+      run,
+      eventId,
+      traceIds,
+    }),
+  });
 }
