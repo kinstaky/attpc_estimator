@@ -306,7 +306,7 @@ def test_filter_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatc
     monkeypatch.setattr(sys, "argv", ["filter", "-c", str(config_path)])
     filter_main()
 
-    output_path = workspace / "filter_run_0008_amp_20_50.npy"
+    output_path = workspace / "filter" / "filter_run_0008_amp_20_50.npy"
     rows = np.load(output_path)
 
     assert output_path.is_file()
@@ -315,25 +315,27 @@ def test_filter_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatc
 
 def test_estimator_service_bootstrap_and_histograms(tmp_path) -> None:
     workspace, trace_root = make_trace_root(tmp_path)
+    (workspace / "filter").mkdir()
+    (workspace / "histograms").mkdir()
     np.save(
-        workspace / "filter_amp_20_50.npy",
+        workspace / "filter" / "filter_amp_20_50.npy",
         np.asarray([[8, 1, 0], [8, 1, 1]], dtype=np.int64),
     )
     np.save(
-        workspace / "run_0008_cdf.npy",
+        workspace / "histograms" / "run_0008_cdf.npy",
         np.ones((len(CDF_THRESHOLDS), 100), dtype=np.int64),
     )
     np.savez(
-        workspace / "run_0008_labeled_cdf.npz",
+        workspace / "histograms" / "run_0008_labeled_cdf.npz",
         run_id=np.int64(8),
         label_keys=np.asarray(["normal:0", "strange:Noise"], dtype=np.str_),
         label_titles=np.asarray(["0 peak", "Noise"], dtype=np.str_),
         trace_counts=np.asarray([1, 1], dtype=np.int64),
         histograms=np.ones((2, len(CDF_THRESHOLDS), 100), dtype=np.int64),
     )
-    np.save(workspace / "run_0008_amp.npy", np.arange(16, dtype=np.int64))
+    np.save(workspace / "histograms" / "run_0008_amp.npy", np.arange(16, dtype=np.int64))
     np.savez(
-        workspace / "run_0008_labeled_amp.npz",
+        workspace / "histograms" / "run_0008_labeled_amp.npz",
         run_id=np.int64(8),
         label_keys=np.asarray(["normal:0", "normal:4", "normal:9", "strange:Noise"], dtype=np.str_),
         trace_counts=np.asarray([1, 2, 3, 1], dtype=np.int64),
@@ -391,8 +393,9 @@ def test_estimator_service_bootstrap_and_histograms(tmp_path) -> None:
 
 def test_estimator_service_builds_veto_filtered_histogram(tmp_path) -> None:
     workspace, trace_root = make_trace_root(tmp_path)
+    (workspace / "filter").mkdir()
     np.save(
-        workspace / "filter_amp_20_50.npy",
+        workspace / "filter" / "filter_amp_20_50.npy",
         np.asarray([[8, 1, 0], [8, 1, 1]], dtype=np.int64),
     )
 
@@ -418,8 +421,9 @@ def test_estimator_service_veto_filtered_histogram_uses_all_run_traces_when_run_
     tmp_path,
 ) -> None:
     workspace, trace_root = make_trace_root(tmp_path)
+    (workspace / "filter").mkdir()
     np.save(
-        workspace / "filter_other_run.npy",
+        workspace / "filter" / "filter_other_run.npy",
         np.asarray([[9, 1, 0]], dtype=np.int64),
     )
 
@@ -440,8 +444,9 @@ def test_estimator_service_veto_filtered_histogram_uses_all_run_traces_when_run_
 
 def test_histogram_service_reports_filtered_histogram_progress(tmp_path) -> None:
     workspace, trace_root = make_trace_root(tmp_path)
+    (workspace / "filter").mkdir()
     np.save(
-        workspace / "filter_amp_20_50.npy",
+        workspace / "filter" / "filter_amp_20_50.npy",
         np.asarray([[8, 1, 0], [8, 2, 0]], dtype=np.int64),
     )
     service = EstimatorService(trace_path=trace_root, workspace=workspace)
@@ -464,8 +469,9 @@ def test_histogram_service_reports_filtered_histogram_progress(tmp_path) -> None
 
 def test_histogram_service_reports_veto_filtered_histogram_progress(tmp_path) -> None:
     workspace, trace_root = make_trace_root(tmp_path)
+    (workspace / "filter").mkdir()
     np.save(
-        workspace / "filter_amp_20_50.npy",
+        workspace / "filter" / "filter_amp_20_50.npy",
         np.asarray([[8, 1, 0], [8, 1, 1]], dtype=np.int64),
     )
     service = EstimatorService(trace_path=trace_root, workspace=workspace)
@@ -490,8 +496,9 @@ def test_histogram_service_reports_veto_filtered_histogram_progress(tmp_path) ->
 
 def test_estimator_service_selects_filter_and_navigates(tmp_path) -> None:
     workspace, trace_root = make_trace_root(tmp_path)
+    (workspace / "filter").mkdir()
     np.save(
-        workspace / "filter_amp_20_80.npy",
+        workspace / "filter" / "filter_amp_20_80.npy",
         np.asarray([[8, 1, 0], [8, 1, 1]], dtype=np.int64),
     )
 
@@ -509,6 +516,8 @@ def test_estimator_service_selects_filter_and_navigates(tmp_path) -> None:
             "family": None,
             "label": None,
             "filterFile": "filter_amp_20_80.npy",
+            "eventId": None,
+            "traceId": None,
         }
         assert selected["traceCount"] == 2
         assert selected["trace"]["run"] == 8

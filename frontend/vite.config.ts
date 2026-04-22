@@ -6,13 +6,14 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    reportCompressedSize: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
             return undefined;
           }
-          if (id.includes("plotly.js-cartesian-dist-min")) {
+          if (id.includes("plotly.js")) {
             return "vendor-plotly";
           }
           if (id.includes("vuetify")) {

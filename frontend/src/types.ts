@@ -77,7 +77,15 @@ export interface HistogramAvailabilityEntry {
   filtered: boolean;
 }
 
-export type HistogramMetric = "cdf" | "amplitude" | "baseline" | "bitflip" | "saturation";
+export type HistogramPhase = "phase1" | "phase2";
+export type HistogramMetric =
+  | "cdf"
+  | "amplitude"
+  | "baseline"
+  | "bitflip"
+  | "saturation"
+  | "line_distance"
+  | "coplanar";
 export type HistogramMode = "all" | "labeled" | "filtered";
 export type HistogramVariant =
   | "baseline"
@@ -113,6 +121,27 @@ export interface HistogramSeries {
   histogram: number[] | number[][];
 }
 
+export interface HistogramPlotSeries {
+  labelKey: string;
+  title: string;
+  histogram: number[];
+}
+
+export interface HistogramPlot {
+  key: string;
+  render: "bar" | "heatmap" | "grouped_bar";
+  title: string;
+  histogram?: number[] | number[][];
+  binCenters?: number[];
+  binLabel?: string;
+  countLabel?: string;
+  xBinCenters?: number[];
+  yBinCenters?: number[];
+  xLabel?: string;
+  yLabel?: string;
+  series?: HistogramPlotSeries[];
+}
+
 export interface HistogramPayload {
   metric: HistogramMetric;
   mode: HistogramMode;
@@ -126,6 +155,8 @@ export interface HistogramPayload {
   binCenters?: number[];
   binLabel?: string;
   countLabel?: string;
+  plots?: HistogramPlot[];
+  summary?: Record<string, number>;
   series: HistogramSeries[];
 }
 
@@ -208,6 +239,8 @@ export interface PointcloudHit {
   x: number;
   y: number;
   z: number;
+  xPrime: number | null;
+  yPrime: number | null;
   amplitude: number;
   integral: number;
   padId: number;

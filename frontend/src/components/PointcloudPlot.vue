@@ -16,7 +16,7 @@ const DEFAULT_3D_RANGES = {
   z: [-300, 300],
 };
 const DEFAULT_3D_CAMERA = {
-  eye: { x: 1.8, y: 1.45, z: 0.75 },
+  eye: { x: 1.45, y: 1.15, z: 0.58 },
   up: { x: 0, y: 0, z: 1 },
   center: { x: 0, y: 0, z: 0 },
 };
@@ -29,10 +29,11 @@ const props = defineProps({
   selectedTraceIds: { type: Array, default: () => [] },
   traces: { type: Array, default: () => [] },
   xyRange: { type: Object, default: null },
+  projectedRange: { type: Object, default: null },
   camera: { type: Object, default: null },
 });
 
-const emit = defineEmits(["toggle-traces", "update-xy-range", "update-camera"]);
+const emit = defineEmits(["toggle-traces", "update-xy-range", "update-projected-range", "update-camera"]);
 
 const root = ref(null);
 let resizeObserver = null;
@@ -45,7 +46,12 @@ function isPadPlot() {
 function isTwoDimensionalHitPlot() {
   return props.plotType === "hits-2d-z"
     || props.plotType === "hits-2d-amplitude"
+    || props.plotType === "hits-2d-pca-amplitude"
     || isPadPlot();
+}
+
+function isProjectedTwoDimensionalPlot() {
+  return props.plotType === "hits-2d-pca-amplitude";
 }
 
 function isThreeDimensionalPlot() {
@@ -86,23 +92,29 @@ function axisRange(value) {
   return props.xyRange?.[value] || undefined;
 }
 
-function twoDimensionalLayout(title) {
+function projectedAxisRange(value) {
+  return props.projectedRange?.[value] || undefined;
+}
+
+function twoDimensionalLayout(title, xLabel = "x", yLabel = "y", rangeSource = "xy") {
+  const resolvedRange = rangeSource === "projected" ? projectedAxisRange : axisRange;
+  const hasRange = rangeSource === "projected" ? props.projectedRange : props.xyRange;
   return {
     ...baseLayout(),
     title: { text: title, x: 0.02, xanchor: "left" },
     xaxis: {
-      title: "x",
+      title: xLabel,
       zeroline: false,
       gridcolor: "#e7dfcf",
-      range: axisRange("x"),
-      autorange: props.xyRange ? false : true,
+      range: resolvedRange("x"),
+      autorange: hasRange ? false : true,
     },
     yaxis: {
-      title: "y",
+      title: yLabel,
       zeroline: false,
       gridcolor: "#e7dfcf",
-      range: axisRange("y"),
-      autorange: props.xyRange ? false : true,
+      range: resolvedRange("y"),
+      autorange: hasRange ? false : true,
     },
   };
 }
@@ -263,8 +275,9 @@ function createPadInteractionTrace(pads, colorTitle) {
 }
 
 function next2dRange(eventData) {
-  const currentX = axisRange("x");
-  const currentY = axisRange("y");
+  const resolvedAxisRange = isProjectedTwoDimensionalPlot() ? projectedAxisRange : axisRange;
+  const currentX = resolvedAxisRange("x");
+  const currentY = resolvedAxisRange("y");
   const nextX = [
     eventData?.["xaxis.range[0]"],
     eventData?.["xaxis.range[1]"],
@@ -310,7 +323,7 @@ async function renderHits3d() {
           z: Number(hit.z),
         })),
         marker: {
-          size: 4,
+          size: 2,
           color: props.hits.map((hit) => Number(hit.amplitude)),
           colorscale: "Turbo",
           line: {
@@ -386,6 +399,67 @@ async function renderHits2d(metricKey, title, colorTitle) {
       },
     ],
     twoDimensionalLayout(title),
+    config(),
+  );
+}
+
+async function renderProjectedHits2d() {
+  const Plotly = await loadPlotly();
+  const selected = selectedTraceIdSet();
+  const projectedHits = (props.hits || []).filter(
+    (hit) => hit.xPrime !== null && hit.yPrime !== null,
+  );
+
+  if (!projectedHits.length) {
+    await Plotly.react(
+      root.value,
+      [],
+      {
+        ...twoDimensionalLayout("2D x'y' · Q", "x'", "y'", "projected"),
+        annotations: [
+          {
+            text: "Not enough points for PCA reprojection",
+            xref: "paper",
+            yref: "paper",
+            x: 0.5,
+            y: 0.5,
+            showarrow: false,
+            font: { size: 16, color: "#6b6257" },
+          },
+        ],
+      },
+      config(),
+    );
+    return;
+  }
+
+  await Plotly.react(
+    root.value,
+    [
+      {
+        type: "scattergl",
+        mode: "markers",
+        x: projectedHits.map((hit) => Number(hit.xPrime)),
+        y: projectedHits.map((hit) => Number(hit.yPrime)),
+        customdata: projectedHits.map((hit) => ({
+          traceId: Number(hit.traceId),
+          padId: Number(hit.padId),
+          q: Number(hit.amplitude),
+        })),
+        marker: {
+          size: 8,
+          color: projectedHits.map((hit) => Number(hit.amplitude)),
+          colorscale: "Turbo",
+          colorbar: { title: "Q" },
+          line: {
+            color: "#111111",
+            width: projectedHits.map((hit) => (selected.has(Number(hit.traceId)) ? 2 : 0)),
+          },
+        },
+        hovertemplate: "trace %{customdata.traceId}<br>pad %{customdata.padId}<br>x' %{x:.2f}<br>y' %{y:.2f}<br>Q %{customdata.q:.2f}<extra></extra>",
+      },
+    ],
+    twoDimensionalLayout("2D x'y' · Q", "x'", "y'", "projected"),
     config(),
   );
 }
@@ -497,7 +571,11 @@ function bindEvents() {
     if (isTwoDimensionalHitPlot()) {
       const range = next2dRange(eventData);
       if (range !== undefined) {
-        emit("update-xy-range", range);
+        if (isProjectedTwoDimensionalPlot()) {
+          emit("update-projected-range", range);
+        } else {
+          emit("update-xy-range", range);
+        }
       }
     }
     if (isThreeDimensionalPlot() && eventData["scene.camera"]) {
@@ -516,6 +594,8 @@ async function renderPlot() {
     await renderHits2d("z", "2D xy · z", "z");
   } else if (props.plotType === "hits-2d-amplitude") {
     await renderHits2d("amplitude", "2D xy · Q", "Q");
+  } else if (props.plotType === "hits-2d-pca-amplitude") {
+    await renderProjectedHits2d();
   } else if (props.plotType === "pads-z") {
     await renderPads("z", "pads · z", "z");
   } else if (props.plotType === "pads-amplitude") {
@@ -546,6 +626,7 @@ watch(
     props.selectedTraceIds,
     props.traces,
     props.xyRange,
+    props.projectedRange,
     props.camera,
   ],
   () => {

@@ -49,8 +49,8 @@ def _write_pointcloud_file(path: Path, event_ids: list[int]) -> None:
                 f"cloud_{event_id}",
                 data=np.asarray(
                     [
-                        [0.0, 1.0, 2.0, 100.0 + event_id, 10.0, 20.0, 10.0 + event_id, 11.0, 1.0],
-                        [2.0, 3.0, 4.0, 200.0 + event_id, 30.0, 40.0, 20.0 + event_id, 22.0, 1.5],
+                        [1.0, 2.0, 100.0 + event_id, 10.0, 20.0, 10.0 + event_id, 11.0, 1.0, 0.0],
+                        [3.0, 4.0, 200.0 + event_id, 30.0, 40.0, 20.0 + event_id, 22.0, 1.5, 2.0],
                     ],
                     dtype=np.float64,
                 ),
@@ -74,6 +74,65 @@ def test_pointcloud_service_loads_unsorted_selected_traces(tmp_path: Path) -> No
         assert payload["traces"][1]["raw"] == [11.0, 21.0, 31.0]
         assert [peak["padId"] for peak in payload["traces"][0]["peaks"]] == [21]
         assert [peak["padId"] for peak in payload["traces"][1]["peaks"]] == [11]
+    finally:
+        service.close()
+
+
+def test_pointcloud_service_returns_pca_projected_hit_coordinates(tmp_path: Path) -> None:
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    _write_trace_file(trace_root / "run_0007.h5", [1])
+    _write_pointcloud_file(pointcloud_root / "run_0007.h5", [1])
+
+    service = PointcloudService(trace_path=trace_root, workspace=workspace, baseline_window_scale=10.0)
+    try:
+        payload = service.get_event(run=7, event_id=1)
+        assert len(payload["hits"]) == 2
+        assert payload["hits"][0]["xPrime"] is None
+        assert payload["hits"][0]["yPrime"] is None
+    finally:
+        service.close()
+
+
+def test_pointcloud_service_projects_hits_when_event_has_enough_points(tmp_path: Path) -> None:
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    _write_trace_file(trace_root / "run_0007.h5", [1])
+    pointcloud_path = pointcloud_root / "run_0007.h5"
+    with h5py.File(pointcloud_path, "w") as handle:
+        cloud = handle.create_group("cloud")
+        cloud.attrs["min_event"] = 1
+        cloud.attrs["max_event"] = 1
+        cloud.attrs["fft_window_scale"] = 20.0
+        cloud.attrs["micromegas_time_bucket"] = 10.0
+        cloud.attrs["window_time_bucket"] = 560.0
+        cloud.attrs["detector_length"] = 1000.0
+        cloud.create_dataset(
+            "cloud_1",
+            data=np.asarray(
+                [
+                    [0.0, 0.0, 0.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0],
+                    [1.0, 0.0, 0.1, 20.0, 30.0, 20.0, 22.0, 1.0, 1.0],
+                    [2.0, 0.1, 0.0, 30.0, 40.0, 30.0, 33.0, 1.0, 2.0],
+                    [3.0, 0.1, 0.2, 40.0, 50.0, 40.0, 44.0, 1.0, 3.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
+
+    service = PointcloudService(trace_path=trace_root, workspace=workspace, baseline_window_scale=10.0)
+    try:
+        payload = service.get_event(run=7, event_id=1)
+        assert len(payload["hits"]) == 4
+        assert all(hit["xPrime"] is not None for hit in payload["hits"])
+        assert all(hit["yPrime"] is not None for hit in payload["hits"])
+        assert any(abs(float(hit["xPrime"])) > 0.0 for hit in payload["hits"])
     finally:
         service.close()
 

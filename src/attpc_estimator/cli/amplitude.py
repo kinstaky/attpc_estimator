@@ -10,7 +10,7 @@ from ..process.amplitude import (
     build_amplitude_histogram,
     build_labeled_amplitude_histograms,
 )
-from ..storage.run_paths import format_run_id, resolve_run_file
+from ..storage.run_paths import format_run_id, histogram_dir, resolve_run_file
 from .config import parse_run, parse_toml_config, root_config_values, table_config_values
 from .progress import tqdm_reporter
 
@@ -19,6 +19,7 @@ def main() -> None:
     args = _parse_args()
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
+    output_root = histogram_dir(workspace)
     run_token = args.run
     run_id = int(run_token)
     run_name = format_run_id(run_id)
@@ -35,7 +36,7 @@ def main() -> None:
                 peak_width=args.peak_width,
                 progress=progress,
             )
-        output_path = workspace / f"run_{run_name}_labeled_amp.npz"
+        output_path = output_root / f"run_{run_name}_labeled_amp.npz"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             output_path,
@@ -64,7 +65,7 @@ def main() -> None:
             peak_width=args.peak_width,
             progress=progress,
         )
-    output_path = workspace / f"run_{run_name}_amp.npy"
+    output_path = output_root / f"run_{run_name}_amp.npy"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, histogram)
 

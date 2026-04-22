@@ -26,6 +26,17 @@
           </v-col>
           <v-col cols="12" md="4">
             <v-select
+              :items="phaseOptions"
+              item-title="title"
+              item-value="value"
+              label="Phase"
+              :model-value="store.state.selectedPhase"
+              variant="outlined"
+              @update:model-value="store.setSelectedPhase"
+            />
+          </v-col>
+          <v-col cols="12" md="4">
+            <v-select
               :items="metricOptions"
               item-title="title"
               item-value="value"
@@ -50,7 +61,11 @@
               @update:model-value="onVariantChange"
             />
           </v-col>
-          <v-col cols="12" md="4">
+          <v-col
+            v-if="store.state.selectedPhase !== 'phase2'"
+            cols="12"
+            md="4"
+          >
             <v-select
               :items="modeOptions"
               item-title="title"
@@ -180,6 +195,13 @@
       </div>
     </div>
 
+    <LineDistancePlots
+      v-else-if="store.state.selectedMetric === 'line_distance' && (store.state.histogram?.plots?.length || 0) > 0"
+      class="mt-4"
+      :plots="store.state.histogram?.plots || []"
+      :scale-mode="store.scaleMode.value"
+    />
+
     <v-row
       v-else-if="store.state.histogram?.series?.length"
       class="mt-4"
@@ -211,7 +233,13 @@
             </div>
             <strong>
               {{ series.traceCount ?? series.histogram.length }}
-              {{ series.traceCount !== null && series.traceCount !== undefined ? "traces" : "bins" }}
+              {{
+                series.traceCount !== null && series.traceCount !== undefined
+                  ? store.state.histogram?.metric === "coplanar"
+                    ? "events"
+                    : "traces"
+                  : "bins"
+              }}
             </strong>
           </v-card-title>
           <v-card-text>
@@ -247,6 +275,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 
+import LineDistancePlots from "../components/LineDistancePlots.vue";
 import ResultPlot from "../components/ResultPlot.vue";
 import { useHistogramStore } from "../stores/histograms";
 import { useShellStore } from "../stores/shell";
@@ -271,13 +300,26 @@ const filterFileOptions = computed(() =>
   })),
 );
 
-const metricOptions = [
-  { title: "Amplitude", value: "amplitude" },
-  { title: "Baseline", value: "baseline" },
-  { title: "Bitflip", value: "bitflip" },
-  { title: "CDF", value: "cdf" },
-  { title: "Saturation", value: "saturation" },
+const phaseOptions = [
+  { title: "Phase 1", value: "phase1" },
+  { title: "Phase 2", value: "phase2" },
 ];
+
+const metricOptions = computed(() => {
+  if (store.state.selectedPhase === "phase2") {
+    return [
+      { title: "Line distance", value: "line_distance" },
+      { title: "Coplanarity (λ₃/λ₁)", value: "coplanar" },
+    ];
+  }
+  return [
+    { title: "Amplitude", value: "amplitude" },
+    { title: "Baseline", value: "baseline" },
+    { title: "Bitflip", value: "bitflip" },
+    { title: "CDF", value: "cdf" },
+    { title: "Saturation", value: "saturation" },
+  ];
+});
 
 const selectedVariant = computed(() => {
   if (store.state.selectedMetric === "bitflip") {

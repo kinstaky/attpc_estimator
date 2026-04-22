@@ -7,6 +7,7 @@ import type {
   HistogramJobProgress,
   HistogramMetric,
   HistogramMode,
+  HistogramPhase,
   HistogramPayload,
   HistogramSeries,
   HistogramVariant,
@@ -18,6 +19,7 @@ type ScaleMode = "linear" | "log";
 type CdfRenderMode = "2d" | "projection";
 
 interface HistogramState {
+  selectedPhase: HistogramPhase;
   selectedRun: number | null;
   selectedMetric: HistogramMetric;
   selectedMode: HistogramMode;
@@ -37,6 +39,7 @@ interface HistogramState {
 }
 
 const state = reactive<HistogramState>({
+  selectedPhase: "phase1",
   selectedRun: null,
   selectedMetric: "cdf",
   selectedMode: "all",
@@ -58,6 +61,13 @@ const state = reactive<HistogramState>({
 const labeledSeriesOrder = reactive<Record<string, string[]>>({});
 let activeSocket: WebSocket | null = null;
 let loadSequence = 0;
+
+const PHASE_METRICS: Record<HistogramPhase, HistogramMetric[]> = {
+  phase1: ["amplitude", "baseline", "bitflip", "cdf", "saturation"],
+  phase2: ["line_distance", "coplanar"],
+};
+
+const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "coplanar"]);
 
 function clearTransientUi(): void {
   state.error = "";
@@ -116,6 +126,10 @@ function currentVariant(): HistogramVariant | "" {
   return "";
 }
 
+function metricPhase(metric: HistogramMetric): HistogramPhase {
+  return metric === "line_distance" || metric === "coplanar" ? "phase2" : "phase1";
+}
+
 function getAvailability() {
   const shell = useShellStore();
   if (state.selectedRun === null || !shell.state.bootstrap) {
@@ -127,6 +141,10 @@ function getAvailability() {
 function ensureModeAvailability(): void {
   const availability = getAvailability();
   if (!availability) {
+    return;
+  }
+  if (MODE_LOCKED_METRICS.has(state.selectedMetric)) {
+    state.selectedMode = "all";
     return;
   }
   const metricAvailability = availability?.[state.selectedMetric] || {};
@@ -149,6 +167,7 @@ async function loadHistogram(forceFiltered = false): Promise<void> {
     return;
   }
   clearTransientUi();
+  state.selectedPhase = metricPhase(state.selectedMetric);
   ensureModeAvailability();
   if (state.selectedMode === "filtered" && !forceFiltered) {
     state.loading = false;
@@ -296,7 +315,25 @@ async function setSelectedRun(run: number | string | null): Promise<void> {
 }
 
 async function setSelectedMetric(metric: HistogramMetric): Promise<void> {
+  state.selectedPhase = metricPhase(metric);
   state.selectedMetric = metric;
+  if (MODE_LOCKED_METRICS.has(metric)) {
+    state.selectedMode = "all";
+    state.filteredPlotDirty = false;
+  }
+  await loadHistogram();
+}
+
+async function setSelectedPhase(phase: HistogramPhase): Promise<void> {
+  state.selectedPhase = phase;
+  const allowedMetrics = PHASE_METRICS[phase];
+  if (!allowedMetrics.includes(state.selectedMetric)) {
+    state.selectedMetric = allowedMetrics[0];
+  }
+  if (MODE_LOCKED_METRICS.has(state.selectedMetric)) {
+    state.selectedMode = "all";
+    state.filteredPlotDirty = false;
+  }
   await loadHistogram();
 }
 
@@ -318,6 +355,10 @@ async function setSelectedVariant(variant: HistogramVariant): Promise<void> {
 }
 
 async function setSelectedMode(mode: HistogramMode): Promise<void> {
+  if (MODE_LOCKED_METRICS.has(state.selectedMetric)) {
+    state.selectedMode = "all";
+    return;
+  }
   state.selectedMode = mode;
   if (mode === "filtered" && !state.selectedHistogramFilter) {
     const shell = useShellStore();
@@ -418,6 +459,7 @@ export function useHistogramStore() {
     loadHistogram,
     plotFilteredHistogram,
     setSelectedRun,
+    setSelectedPhase,
     setSelectedMetric,
     setSelectedVariant,
     setSelectedMode,

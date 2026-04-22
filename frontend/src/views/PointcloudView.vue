@@ -121,9 +121,11 @@
               :selected-trace-ids="selectedTraceIds"
               :traces="panelTypes[panelIndex - 1] === 'traces' ? tracePayload.traces : []"
               :xy-range="xyRange"
+              :projected-range="projectedRange"
               :camera="camera"
               @toggle-traces="toggleTraceIds"
               @update-xy-range="updateXYRange"
+              @update-projected-range="updateProjectedRange"
               @update-camera="updateCamera"
             />
           </section>
@@ -141,7 +143,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { getMappingPads, getPointcloudEvent, getPointcloudTraces } from "../api";
 import PointcloudPlot from "../components/PointcloudPlot.vue";
@@ -157,9 +159,10 @@ const mappingPads = ref([]);
 const selectedRun = ref(null);
 const selectedEventId = ref(null);
 const selectedTraceIds = ref([]);
-const layoutMode = ref("2x2");
+const layoutMode = ref("1x1");
 const panelTypes = ref(["hits-3d-amplitude", "pads-z", "hits-2d-amplitude", "traces"]);
 const xyRange = ref(null);
+const projectedRange = ref(null);
 const camera = ref(null);
 
 const layoutOptions = [
@@ -172,6 +175,7 @@ const plotOptions = [
   { title: "3D xyz · Q", value: "hits-3d-amplitude" },
   { title: "2D xy · z", value: "hits-2d-z" },
   { title: "2D xy · Q", value: "hits-2d-amplitude" },
+  { title: "2D x'y' · Q", value: "hits-2d-pca-amplitude" },
   { title: "pads · z", value: "pads-z" },
   { title: "pads · Q", value: "pads-amplitude" },
   { title: "traces", value: "traces" },
@@ -239,6 +243,7 @@ async function loadEvent() {
   selectedTraceIds.value = [];
   tracePayload.value = { traces: [] };
   xyRange.value = null;
+  projectedRange.value = null;
   camera.value = null;
   try {
     eventPayload.value = await getPointcloudEvent(selectedRun.value, selectedEventId.value);
@@ -307,6 +312,16 @@ function updateXYRange(range) {
   xyRange.value = range;
 }
 
+function updateProjectedRange(range) {
+  if (range === null && projectedRange.value === null) {
+    return;
+  }
+  if (sameRange(range, projectedRange.value)) {
+    return;
+  }
+  projectedRange.value = range;
+}
+
 function updateCamera(nextCamera) {
   camera.value = nextCamera;
 }
@@ -333,6 +348,31 @@ function previousEvent() {
   }
 }
 
+function onKeydown(event) {
+  const tagName = event.target?.tagName?.toLowerCase();
+  if (
+    tagName === "input"
+    || tagName === "textarea"
+    || tagName === "select"
+    || event.target?.isContentEditable
+  ) {
+    return;
+  }
+  if (loading.value) {
+    return;
+  }
+  const key = event.key.toLowerCase();
+  if (key === "j") {
+    event.preventDefault();
+    nextEvent();
+    return;
+  }
+  if (key === "k") {
+    event.preventDefault();
+    previousEvent();
+  }
+}
+
 watch(
   () => selectedTraceIds.value.slice(),
   () => {
@@ -341,9 +381,14 @@ watch(
 );
 
 onMounted(async () => {
+  window.addEventListener("keydown", onKeydown);
   await shell.init();
   mappingPads.value = await getMappingPads();
   selectedRun.value = shell.state.bootstrap?.pointcloudRuns?.[0] ?? null;
   selectedEventId.value = defaultEventIdForRun(selectedRun.value);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
 });
 </script>

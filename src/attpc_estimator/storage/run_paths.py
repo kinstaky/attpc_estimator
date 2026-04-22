@@ -4,6 +4,8 @@ from pathlib import Path
 
 DEFAULT_LABELS_DB_FILENAME = "labels.db"
 DEFAULT_POINTCLOUD_DIRNAME = "pointcloud"
+DEFAULT_HISTOGRAM_DIRNAME = "histograms"
+DEFAULT_FILTER_DIRNAME = "filter"
 
 
 def format_run_id(run: int | str) -> str:
@@ -68,6 +70,14 @@ def extract_run_id(trace_file_path: Path) -> int:
 
 def labels_db_path(workspace: Path) -> Path:
     return workspace / DEFAULT_LABELS_DB_FILENAME
+
+
+def histogram_dir(workspace: Path) -> Path:
+    return workspace / DEFAULT_HISTOGRAM_DIRNAME
+
+
+def filter_dir(workspace: Path) -> Path:
+    return workspace / DEFAULT_FILTER_DIRNAME
 
 
 def pointcloud_dir(workspace: Path) -> Path:

@@ -17,6 +17,7 @@ from ..process.baseline import (
     accumulate_baseline_histogram,
 )
 from ..process.cdf import _accumulate_cdf_histogram_numba
+from ..process.line_distance import serialize_line_distance_payload
 from ..process.bitflip import (
     BITFLIP_BASELINE_DEFAULT,
     BITFLIP_BIN_COUNTS,
@@ -32,7 +33,7 @@ from ..process.saturation import (
     SATURATION_VARIANTS,
     accumulate_saturation_histograms,
 )
-from ..storage.run_paths import collect_run_files
+from ..storage.run_paths import collect_run_files, filter_dir, histogram_dir
 from ..utils.label_keys import label_title_from_key
 from ..utils.trace_data import (
     CDF_THRESHOLDS,
@@ -45,7 +46,15 @@ from ..utils.trace_data import (
 )
 from .histogram_jobs import HistogramJobManager
 
-SUPPORTED_METRICS = ("cdf", "amplitude", "baseline", "bitflip", "saturation")
+SUPPORTED_METRICS = (
+    "cdf",
+    "amplitude",
+    "baseline",
+    "bitflip",
+    "saturation",
+    "line_distance",
+    "coplanar",
+)
 DEFAULT_VARIANTS = {
     "bitflip": "baseline",
     "saturation": "drop",
@@ -65,6 +74,8 @@ ARTIFACT_SUFFIXES = {
     ("bitflip", "labeled"): ("_labeled_bitflip.npz",),
     ("saturation", "all"): ("_saturation.npz",),
     ("saturation", "labeled"): ("_labeled_saturation.npz",),
+    ("line_distance", "all"): ("_line_distance.npz",),
+    ("coplanar", "all"): ("_coplanar.npz",),
 }
 ONE_D_METRIC_METADATA = {
     "amplitude": {
@@ -83,7 +94,7 @@ ONE_D_METRIC_METADATA = {
             "count_label": BASELINE_COUNT_LABEL,
             "all_key": "histogram",
             "labeled_key": "histograms",
-            "bin_centers": BASELINE_BIN_CENTERS.tolist(),
+            "bin_centers_key": "bin_centers",
         }
     },
     "bitflip": {
@@ -133,6 +144,15 @@ ONE_D_METRIC_METADATA = {
             "labeled_key": "length_histograms",
         },
     },
+    "coplanar": {
+        None: {
+            "bin_label": "λ₃/λ₁",
+            "count_label": "Event count",
+            "all_key": "histogram",
+            "labeled_key": "histograms",
+            "bin_edges_key": "bin_edges",
+        }
+    },
 }
 
 
@@ -165,15 +185,7 @@ class HistogramService:
             "filterFiles": [{"name": path.name} for path in filter_files],
             "histogramAvailability": {
                 str(run_id): {
-                    metric: {
-                        mode: (
-                            bool(filter_files)
-                            if mode == "filtered"
-                            else self._artifact_path(metric=metric, mode=mode, run=run_id)
-                            is not None
-                        )
-                        for mode in ("all", "labeled", "filtered")
-                    }
+                    metric: self._availability_for_metric(run_id, metric, bool(filter_files))
                     for metric in SUPPORTED_METRICS
                 }
                 for run_id in run_ids
@@ -230,6 +242,8 @@ class HistogramService:
                 payload=payload,
                 veto=resolved_veto,
             )
+        if metric == "line_distance":
+            return serialize_line_distance_payload(run, _mapping_payload(payload))
         return self._normalize_generic_1d_payload(
             metric=metric,
             variant=resolved_variant,
@@ -278,7 +292,28 @@ class HistogramService:
         return self.jobs.next_message(job_id, after_index)
 
     def _filter_files(self) -> list[Path]:
-        return sorted(self.workspace.glob("filter_*.npy"))
+        return sorted(filter_dir(self.workspace).glob("filter_*.npy"))
+
+    def _availability_for_metric(
+        self,
+        run: int,
+        metric: str,
+        has_filter_files: bool,
+    ) -> dict[str, bool]:
+        if metric in {"line_distance", "coplanar"}:
+            return {
+                "all": self._artifact_path(metric=metric, mode="all", run=run) is not None,
+                "labeled": False,
+                "filtered": False,
+            }
+        return {
+            mode: (
+                has_filter_files
+                if mode == "filtered"
+                else self._artifact_path(metric=metric, mode=mode, run=run) is not None
+            )
+            for mode in ("all", "labeled", "filtered")
+        }
 
     def _validate_histogram_request(
         self,
@@ -291,12 +326,14 @@ class HistogramService:
     ) -> str | None:
         if metric not in SUPPORTED_METRICS:
             raise ValueError(
-                "metric must be 'cdf', 'amplitude', 'baseline', 'bitflip', or 'saturation'"
+                "metric must be 'cdf', 'amplitude', 'baseline', 'bitflip', 'saturation', 'line_distance', or 'coplanar'"
             )
         if mode not in {"all", "labeled", "filtered"}:
             raise ValueError("mode must be 'all', 'labeled', or 'filtered'")
         if run not in self.run_files:
             raise ValueError(f"run {run} is not available")
+        if metric in {"line_distance", "coplanar"} and mode != "all":
+            raise ValueError(f"metric '{metric}' only supports mode 'all'")
         if mode == "filtered":
             self._filter_path(filter_file)
         return self._resolve_variant(metric=metric, variant=variant)
@@ -318,16 +355,18 @@ class HistogramService:
     def _filter_path(self, name: str | None) -> Path:
         if not name:
             raise ValueError("filterFile is required when mode is 'filtered'")
-        filter_path = self.workspace / name
+        filter_path = filter_dir(self.workspace) / name
         if filter_path not in self._filter_files():
             raise ValueError(f"filter file not found: {name}")
         return filter_path
 
     def _artifact_path(self, metric: str, mode: str, run: int) -> Path | None:
-        suffixes = ARTIFACT_SUFFIXES[(metric, mode)]
+        suffixes = ARTIFACT_SUFFIXES.get((metric, mode))
+        if suffixes is None:
+            return None
         for suffix in suffixes:
             pattern = re.compile(rf"^run_(\d+){re.escape(suffix)}$")
-            for candidate in sorted(self.workspace.glob(f"run_*{suffix}")):
+            for candidate in sorted(histogram_dir(self.workspace).glob(f"run_*{suffix}")):
                 match = pattern.match(candidate.name)
                 if match is not None and int(match.group(1)) == run:
                     return candidate
@@ -465,8 +504,8 @@ class HistogramService:
         trace_count: int | None = None,
     ) -> dict[str, Any]:
         metadata = ONE_D_METRIC_METADATA[metric][variant]
+        loaded = _mapping_payload(payload)
         if mode in {"all", "filtered"}:
-            loaded = _mapping_payload(payload)
             histogram = (
                 np.asarray(payload, dtype=np.int64)
                 if isinstance(payload, np.ndarray)
@@ -488,7 +527,6 @@ class HistogramService:
                 }
             ]
         else:
-            loaded = _mapping_payload(payload)
             label_keys = loaded["label_keys"].tolist()
             label_titles = loaded["label_titles"].tolist()
             trace_counts = loaded["trace_counts"].astype(np.int64)
@@ -505,18 +543,27 @@ class HistogramService:
                         "histogram": histograms[index].tolist(),
                     }
                 )
+        bin_count = metadata.get("bin_count", int(histogram.shape[-1]) if mode in {"all", "filtered"} else 0)
         result = {
             "metric": metric,
             "mode": mode,
             "run": run,
             "filterFile": filter_file,
             "veto": veto,
-            "binCount": metadata["bin_count"],
+            "binCount": bin_count,
             "binLabel": metadata["bin_label"],
             "countLabel": metadata["count_label"],
             "series": series,
         }
-        if "bin_centers" in metadata:
+        if "bin_edges_key" in metadata and mode in {"all", "filtered"}:
+            bin_edges = np.asarray(loaded[metadata["bin_edges_key"]], dtype=np.float64)
+            result["binCenters"] = _bin_centers(bin_edges).tolist()
+            result["binCount"] = max(0, int(bin_edges.shape[0]) - 1)
+        elif "bin_centers_key" in metadata and metadata["bin_centers_key"] in loaded:
+            bin_centers = np.asarray(loaded[metadata["bin_centers_key"]], dtype=np.float64)
+            result["binCenters"] = bin_centers.tolist()
+            result["binCount"] = int(bin_centers.shape[0])
+        elif "bin_centers" in metadata:
             result["binCenters"] = metadata["bin_centers"]
         if variant is not None:
             result["variant"] = variant
@@ -1021,6 +1068,13 @@ def _amplitude_group_key(label_key: str) -> str:
     if family == "normal" and label in {"4", "5", "6", "7", "8", "9"}:
         return "normal:4+"
     return label_key
+
+
+def _bin_centers(edges: np.ndarray) -> np.ndarray:
+    values = np.asarray(edges, dtype=np.float64)
+    if values.ndim != 1 or values.size < 2:
+        return np.empty(0, dtype=np.float64)
+    return (values[:-1] + values[1:]) / 2.0
 
 
 def _load_artifact_payload(path: Path, *, allow_pickle: bool) -> Any:

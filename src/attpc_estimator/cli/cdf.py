@@ -11,7 +11,7 @@ from ..process.cdf import (
     build_labeled_cdf_histograms,
     build_trace_cdf_histogram,
 )
-from ..storage.run_paths import format_run_id, resolve_run_file
+from ..storage.run_paths import format_run_id, histogram_dir, resolve_run_file
 from .config import (
     parse_run,
     parse_toml_config,
@@ -25,6 +25,7 @@ def main() -> None:
     args = _parse_args()
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
+    output_root = histogram_dir(workspace)
     run_token = args.run
     run_id = int(run_token)
     run_name = format_run_id(run_id)
@@ -38,7 +39,7 @@ def main() -> None:
                 baseline_window_scale=args.baseline_window_scale,
                 progress=progress,
             )
-        output_path = workspace / f"run_{run_name}_labeled_cdf.npz"
+        output_path = output_root / f"run_{run_name}_labeled_cdf.npz"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             output_path,
@@ -66,7 +67,7 @@ def main() -> None:
             baseline_window_scale=args.baseline_window_scale,
             progress=progress,
         )
-    output_path = workspace / f"run_{run_name}_cdf.npy"
+    output_path = output_root / f"run_{run_name}_cdf.npy"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, histogram)
 

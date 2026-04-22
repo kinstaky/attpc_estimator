@@ -243,7 +243,7 @@ def test_cdf_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cdf", "-t", str(trace_path), "-w", str(workspace), "-r", "0006"])
     main()
 
-    output_path = workspace / "run_0006_cdf.npy"
+    output_path = workspace / "histograms" / "run_0006_cdf.npy"
     saved = np.load(output_path)
 
     assert output_path.is_file()
@@ -274,7 +274,7 @@ def test_cdf_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
     main()
 
-    output_path = workspace / "run_0006_cdf.npy"
+    output_path = workspace / "histograms" / "run_0006_cdf.npy"
     saved = np.load(output_path)
     assert output_path.is_file()
     assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
@@ -304,7 +304,7 @@ def test_cdf_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatch) 
     monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
     main()
 
-    output_path = workspace / "run_0106_cdf.npy"
+    output_path = workspace / "histograms" / "run_0106_cdf.npy"
     saved = np.load(output_path)
     assert output_path.is_file()
     assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
@@ -337,5 +337,5 @@ def test_cdf_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> N
     )
     main()
 
-    output_path = workspace / "run_0006_cdf.npy"
+    output_path = workspace / "histograms" / "run_0006_cdf.npy"
     assert output_path.is_file()

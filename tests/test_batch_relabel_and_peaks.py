@@ -541,7 +541,7 @@ def test_find_peaks_main_labeled_writes_payload_npz(tmp_path, monkeypatch) -> No
 
     find_peaks_main()
 
-    output_path = workspace / "run_0008_labeled_amp.npz"
+    output_path = workspace / "histograms" / "run_0008_labeled_amp.npz"
     payload = np.load(output_path)
 
     assert output_path.is_file()
@@ -579,7 +579,7 @@ def test_find_peaks_main_zero_pads_integer_run_from_config_file(
     monkeypatch.setattr(sys, "argv", ["find-peak", "-c", str(config_path)])
     find_peaks_main()
 
-    output_path = workspace / "run_0008_labeled_amp.npz"
+    output_path = workspace / "histograms" / "run_0008_labeled_amp.npz"
     payload = np.load(output_path)
 
     assert output_path.is_file()

@@ -179,12 +179,16 @@ class PointcloudService:
     def get_event(self, *, run: int, event_id: int) -> dict[str, Any]:
         event_range = self._require_event_range(run, event_id)
         hits = self._require_event_hits(run, event_id)
+        projected_hits = _project_hit_coordinates(hits)
         self._schedule_prefetch(run, event_id)
         return {
             "run": int(run),
             "eventId": int(event_id),
             "eventIdRange": {"min": int(event_range[0]), "max": int(event_range[1])},
-            "hits": [_serialize_hit_row(row) for row in hits],
+            "hits": [
+                _serialize_hit_row(row, projected=projected)
+                for row, projected in zip(hits, projected_hits, strict=True)
+            ],
             "processing": self._processing_config(run),
         }
 
@@ -217,7 +221,7 @@ class PointcloudService:
 
         traces_payload: list[dict[str, Any]] = []
         for position, trace_id in enumerate(unique_trace_ids):
-            trace_hits = hits[hits[:, 0].astype(np.int64) == int(trace_id)]
+            trace_hits = hits[hits[:, 8].astype(np.int64) == int(trace_id)]
             traces_payload.append(
                 {
                     "traceId": int(trace_id),
@@ -225,11 +229,11 @@ class PointcloudService:
                     "trace": np.asarray(cleaned[position], dtype=np.float32).tolist(),
                     "peaks": [
                         {
-                            "timeBucket": float(row[7]),
-                            "amplitude": float(row[4]),
-                            "integral": float(row[5]),
-                            "z": float(row[3]),
-                            "padId": int(row[6]),
+                            "timeBucket": float(row[6]),
+                            "amplitude": float(row[3]),
+                            "integral": float(row[4]),
+                            "z": float(row[2]),
+                            "padId": int(row[5]),
                         }
                         for row in trace_hits
                     ],
@@ -340,15 +344,48 @@ class PointcloudService:
         return self._prefetcher.wait(timeout=timeout)
 
 
-def _serialize_hit_row(row: np.ndarray) -> dict[str, Any]:
+def _serialize_hit_row(
+    row: np.ndarray,
+    *,
+    projected: tuple[float | None, float | None] = (None, None),
+) -> dict[str, Any]:
     return {
-        "traceId": int(row[0]),
-        "x": float(row[1]),
-        "y": float(row[2]),
-        "z": float(row[3]),
-        "amplitude": float(row[4]),
-        "integral": float(row[5]),
-        "padId": int(row[6]),
-        "timeBucket": float(row[7]),
-        "scale": float(row[8]),
+        "traceId": int(row[8]),
+        "x": float(row[0]),
+        "y": float(row[1]),
+        "z": float(row[2]),
+        "xPrime": projected[0],
+        "yPrime": projected[1],
+        "amplitude": float(row[3]),
+        "integral": float(row[4]),
+        "padId": int(row[5]),
+        "timeBucket": float(row[6]),
+        "scale": float(row[7]),
     }
+
+
+def _project_hit_coordinates(hits: np.ndarray) -> list[tuple[float | None, float | None]]:
+    rows = np.asarray(hits, dtype=np.float64)
+    xyz = rows[:, :3] if rows.ndim == 2 and rows.shape[1] >= 3 else np.empty((0, 3))
+    if xyz.shape[0] < 3:
+        return [(None, None) for _ in range(int(rows.shape[0]))]
+
+    centered = xyz - np.mean(xyz, axis=0)
+    try:
+        covariance = np.dot(centered.T, centered) / float(xyz.shape[0])
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    except np.linalg.LinAlgError:
+        return [(None, None) for _ in range(int(rows.shape[0]))]
+
+    order = np.argsort(eigenvalues)[::-1]
+    basis = eigenvectors[:, order[:2]]
+    if basis.shape != (3, 2) or not np.all(np.isfinite(basis)):
+        return [(None, None) for _ in range(int(rows.shape[0]))]
+
+    projected = np.dot(centered, basis)
+    return [
+        (float(values[0]), float(values[1]))
+        if np.all(np.isfinite(values))
+        else (None, None)
+        for values in projected
+    ]

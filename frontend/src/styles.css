@@ -698,7 +698,7 @@ body {
 }
 
 .pointcloud-grid--single .pointcloud-panel {
-  min-height: 45rem;
+  min-height: 71rem;
 }
 
 .pointcloud-grid--single .pointcloud-plot {
@@ -706,7 +706,7 @@ body {
 }
 
 .pointcloud-grid--double .pointcloud-panel {
-  min-height: 45rem;
+  min-height: 71rem;
 }
 
 .pointcloud-grid--double .pointcloud-plot {
@@ -714,7 +714,7 @@ body {
 }
 
 .pointcloud-grid--quad .pointcloud-panel {
-  min-height: 22rem;
+  min-height: 35rem;
 }
 
 .pointcloud-grid--quad .pointcloud-plot {

@@ -131,7 +131,7 @@ def test_cdf_main_writes_labeled_output_for_selected_run(tmp_path, monkeypatch) 
     )
     main()
 
-    output_path = workspace / "run_0008_labeled_cdf.npz"
+    output_path = workspace / "histograms" / "run_0008_labeled_cdf.npz"
     payload = np.load(output_path)
 
     assert output_path.is_file()
@@ -161,7 +161,7 @@ def test_cdf_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) 
     monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
     main()
 
-    output_path = workspace / "run_0008_labeled_cdf.npz"
+    output_path = workspace / "histograms" / "run_0008_labeled_cdf.npz"
     payload = np.load(output_path)
     assert output_path.is_file()
     assert payload["run_id"] == 8

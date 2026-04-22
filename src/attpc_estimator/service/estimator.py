@@ -13,7 +13,7 @@ from ..model.label import NORMAL_BUCKETS, StoredLabel
 from ..model.trace import TraceRef
 from ..process.bitflip import BITFLIP_BASELINE_DEFAULT
 from ..storage.labels_db import LabelRepository
-from ..storage.run_paths import collect_run_files, labels_db_path
+from ..storage.run_paths import collect_run_files, filter_dir, labels_db_path
 from .histograms import HistogramService
 from .labeling import (
     RESERVED_SHORTCUTS,
@@ -485,8 +485,8 @@ class EstimatorService:
             )
         if key[0] == "review" and key[1] == "filter_file":
             filter_file = str(key[2])
-            filter_path = self.workspace / filter_file
-            available = {path.name for path in self.workspace.glob("filter_*.npy")}
+            filter_path = filter_dir(self.workspace) / filter_file
+            available = {path.name for path in filter_dir(self.workspace).glob("filter_*.npy")}
             if filter_file not in available:
                 raise ValueError(f"filter file not found: {filter_file}")
             rows = np.load(filter_path)

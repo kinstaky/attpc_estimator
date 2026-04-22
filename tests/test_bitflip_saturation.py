@@ -264,7 +264,7 @@ def test_baseline_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
     )
     baseline_main()
 
-    payload = np.load(workspace / "run_0008_baseline.npz")
+    payload = np.load(workspace / "histograms" / "run_0008_baseline.npz")
     assert int(payload["trace_count"]) == 2
     assert payload["histogram"].sum() == 20
     assert payload["bin_centers"][0] < 0
@@ -309,7 +309,7 @@ def test_bitflip_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
         )
     bitflip_cli.main()
 
-    payload = np.load(workspace / "run_0008_bitflip.npz")
+    payload = np.load(workspace / "histograms" / "run_0008_bitflip.npz")
     assert int(payload["trace_count"]) == 3
     assert payload["baseline_histogram"].sum() == 268
     assert payload["value_histogram"].sum() == 28
@@ -348,7 +348,7 @@ def test_saturation_main_writes_expected_artifact(tmp_path, monkeypatch) -> None
     )
     saturation_main()
 
-    payload = np.load(workspace / "run_0008_saturation.npz")
+    payload = np.load(workspace / "histograms" / "run_0008_saturation.npz")
     assert int(payload["trace_count"]) == 2
     assert payload["length_histogram"].sum() == 1
     assert payload["drop_histogram"].sum() > 0
@@ -360,16 +360,21 @@ def test_histogram_service_loads_baseline_bitflip_and_saturation_variants(tmp_pa
     workspace = tmp_path / "workspace"
     trace_root.mkdir()
     workspace.mkdir()
-    (trace_root / "run_0008.h5").touch()
-    np.save(workspace / "filter_placeholder.npy", np.asarray([[8, 1, 0]], dtype=np.int64))
+    write_run_file(
+        trace_root / "run_0008.h5",
+        {1: [_qualified_bitflip_trace(), _flat_trace(_qualified_bitflip_trace().shape[0])]},
+    )
+    (workspace / "filter").mkdir()
+    (workspace / "histograms").mkdir()
+    np.save(workspace / "filter" / "filter_placeholder.npy", np.asarray([[8, 1, 0]], dtype=np.int64))
     np.savez(
-        workspace / "run_0008_baseline.npz",
+        workspace / "histograms" / "run_0008_baseline.npz",
         trace_count=np.int64(4),
         histogram=np.arange(8, dtype=np.int64),
         bin_centers=np.arange(-4, 4, dtype=np.int64),
     )
     np.savez(
-        workspace / "run_0008_labeled_baseline.npz",
+        workspace / "histograms" / "run_0008_labeled_baseline.npz",
         run_id=np.int64(8),
         label_keys=np.asarray(["normal:0", "strange:Noise"], dtype=np.str_),
         label_titles=np.asarray(["0 peak", "Noise"], dtype=np.str_),
@@ -380,7 +385,7 @@ def test_histogram_service_loads_baseline_bitflip_and_saturation_variants(tmp_pa
         bin_centers=np.arange(-4, 4, dtype=np.int64),
     )
     np.savez(
-        workspace / "run_0008_bitflip.npz",
+        workspace / "histograms" / "run_0008_bitflip.npz",
         trace_count=np.int64(4),
         baseline_histogram=np.arange(8, dtype=np.int64) + 60,
         value_histogram=np.arange(8, dtype=np.int64),
@@ -388,7 +393,7 @@ def test_histogram_service_loads_baseline_bitflip_and_saturation_variants(tmp_pa
         count_histogram=np.arange(8, dtype=np.int64) + 20,
     )
     np.savez(
-        workspace / "run_0008_labeled_bitflip.npz",
+        workspace / "histograms" / "run_0008_labeled_bitflip.npz",
         run_id=np.int64(8),
         label_keys=np.asarray(["normal:0", "strange:Noise"], dtype=np.str_),
         label_titles=np.asarray(["0 peak", "Noise"], dtype=np.str_),
@@ -407,13 +412,13 @@ def test_histogram_service_loads_baseline_bitflip_and_saturation_variants(tmp_pa
         ),
     )
     np.savez(
-        workspace / "run_0008_saturation.npz",
+        workspace / "histograms" / "run_0008_saturation.npz",
         trace_count=np.int64(5),
         drop_histogram=np.arange(500, dtype=np.int64),
         length_histogram=np.arange(6, dtype=np.int64) + 5,
     )
     np.savez(
-        workspace / "run_0008_labeled_saturation.npz",
+        workspace / "histograms" / "run_0008_labeled_saturation.npz",
         run_id=np.int64(8),
         label_keys=np.asarray(["normal:0", "strange:Noise"], dtype=np.str_),
         label_titles=np.asarray(["0 peak", "Noise"], dtype=np.str_),
@@ -442,8 +447,17 @@ def test_histogram_service_loads_baseline_bitflip_and_saturation_variants(tmp_pa
             run=8,
         )
         assert baseline_payload["binLabel"] == "Baseline value"
-        assert baseline_payload["binCenters"][0] == -4096
+        assert baseline_payload["binCenters"][0] == -4
+        assert baseline_payload["binCenters"][-1] == 3
         assert baseline_payload["series"][0]["traceCount"] == 4
+
+        labeled_baseline_payload = service.get_histogram(
+            metric="baseline",
+            mode="labeled",
+            run=8,
+        )
+        assert labeled_baseline_payload["binCenters"][0] == -4
+        assert labeled_baseline_payload["binCenters"][-1] == 3
 
         bitflip_payload = service.get_histogram(
             metric="bitflip",

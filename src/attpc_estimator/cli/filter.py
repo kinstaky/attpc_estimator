@@ -19,7 +19,7 @@ from ..process.filter import (
     default_output_name,
     normalize_amplitude_range,
 )
-from ..storage.run_paths import format_run_id
+from ..storage.run_paths import filter_dir, format_run_id
 from .config import parse_run, parse_toml_config, root_config_values, table_config_values
 from .progress import tqdm_reporter
 
@@ -28,6 +28,7 @@ def main() -> None:
     args = _parse_args()
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
+    output_root = filter_dir(workspace)
     run_token = args.run
     run_id = int(run_token)
     run_name = format_run_id(run_id)
@@ -49,7 +50,7 @@ def main() -> None:
     output_path = (
         Path(args.output).expanduser().resolve()
         if args.output is not None
-        else workspace / default_output_name(run_name, filter_cores)
+        else output_root / default_output_name(run_name, filter_cores)
     )
 
     progress_desc = (
