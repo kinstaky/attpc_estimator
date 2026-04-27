@@ -6,6 +6,7 @@ DEFAULT_LABELS_DB_FILENAME = "labels.db"
 DEFAULT_POINTCLOUD_DIRNAME = "pointcloud"
 DEFAULT_HISTOGRAM_DIRNAME = "histograms"
 DEFAULT_FILTER_DIRNAME = "filter"
+DEFAULT_WEBUI_STATE_FILENAME = "webui_session.json"
 
 
 def format_run_id(run: int | str) -> str:
@@ -86,3 +87,7 @@ def pointcloud_dir(workspace: Path) -> Path:
 
 def pointcloud_run_path(workspace: Path, run: int | str) -> Path:
     return pointcloud_dir(workspace) / f"run_{format_run_id(run)}.h5"
+
+
+def webui_state_path(workspace: Path) -> Path:
+    return workspace / DEFAULT_WEBUI_STATE_FILENAME

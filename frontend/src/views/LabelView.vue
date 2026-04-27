@@ -220,7 +220,7 @@ import {
   ref,
   watch,
 } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import AddStrangeLabelDialog from "../components/AddStrangeLabelDialog.vue";
 import DeleteStrangeLabelDialog from "../components/DeleteStrangeLabelDialog.vue";
@@ -229,6 +229,7 @@ import TracePlot from "../components/TracePlot.vue";
 import { useLabelStore } from "../stores/label";
 import { useShellStore } from "../stores/shell";
 
+const route = useRoute();
 const router = useRouter();
 const shell = useShellStore();
 const labelStore = useLabelStore();
@@ -294,6 +295,33 @@ async function ensureSession() {
     return;
   }
   try {
+    const session = shell.state.bootstrap?.session;
+    const reviewRequested = route.query.review === "1";
+    const reviewFamily = route.query.family === "strange" ? "strange" : "normal";
+    const reviewLabel = typeof route.query.label === "string" ? route.query.label : null;
+    if (reviewRequested) {
+      if (
+        session?.mode === "label_review"
+        && session.run === shell.state.selectedRun
+        && session.family === reviewFamily
+        && (session.label ?? null) === reviewLabel
+      ) {
+        await labelStore.restoreCurrentSession();
+        return;
+      }
+      await labelStore.enterReviewMode(shell.state.selectedRun, {
+        family: reviewFamily,
+        label: reviewLabel,
+      });
+      return;
+    }
+    if (
+      session?.mode === "label"
+      && session.run === shell.state.selectedRun
+    ) {
+      await labelStore.restoreCurrentSession();
+      return;
+    }
     await labelStore.enterLabelMode(shell.state.selectedRun);
   } catch {
     // Store state already carries the error.
@@ -311,10 +339,9 @@ async function deleteStrangeLabel(name) {
 
 function openReview(family, label) {
   router.push({
-    name: "review",
+    name: "label-trace",
     query: {
-      source: "label_set",
-      run: shell.state.selectedRun ?? undefined,
+      review: "1",
       family,
       label: label || undefined,
     },
@@ -340,6 +367,11 @@ async function onKeydown(event) {
     event.preventDefault();
     if (isSelectionMode.value) {
       labelStore.cancelSelectionMode();
+      return;
+    }
+    if (labelStore.state.isReviewMode) {
+      await labelStore.exitReviewMode();
+      await router.replace({ name: "label-trace" });
       return;
     }
     router.push({ name: "home" });
@@ -441,5 +473,16 @@ watch(
     }
     void ensureSession();
   },
+);
+
+watch(
+  () => route.query,
+  () => {
+    if (!isActive.value) {
+      return;
+    }
+    void ensureSession();
+  },
+  { deep: true },
 );
 </script>

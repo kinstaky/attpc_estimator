@@ -240,7 +240,22 @@ def test_cdf_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    monkeypatch.setattr(sys, "argv", ["cdf", "-t", str(trace_path), "-w", str(workspace), "-r", "0006"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cdf",
+            "-t",
+            str(trace_path),
+            "-w",
+            str(workspace),
+            "-r",
+            "0006",
+            "--baseline-window-scale",
+            "20.0",
+            "--no-labeled",
+        ],
+    )
     main()
 
     output_path = workspace / "histograms" / "run_0006_cdf.npy"
@@ -266,6 +281,7 @@ def test_cdf_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
                 "",
                 "[cdf]",
                 "baseline_window_scale = 12.5",
+                "labeled = false",
             ]
         ),
         encoding="utf-8",
@@ -296,6 +312,7 @@ def test_cdf_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatch) 
                 "",
                 "[cdf]",
                 "baseline_window_scale = 12.5",
+                "labeled = false",
             ]
         ),
         encoding="utf-8",
@@ -333,7 +350,7 @@ def test_cdf_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(
         sys,
         "argv",
-        ["cdf", "-c", str(config_path), "-r", "0006", "--baseline-window-scale", "20.0"],
+        ["cdf", "-c", str(config_path), "-r", "0006", "--baseline-window-scale", "20.0", "--no-labeled"],
     )
     main()
 

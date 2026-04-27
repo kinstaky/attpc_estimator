@@ -23,15 +23,9 @@ dependencies = [
 ]
 
 [project.scripts]
-amplitude = "attpc_estimator.cli.amplitude:main"
-baseline = "attpc_estimator.cli.baseline:main"
-cdf = "attpc_estimator.cli.cdf:main"
-bitflip = "attpc_estimator.cli.bitflip:main"
-coplanar = "attpc_estimator.cli.coplanar:main"
 filter = "attpc_estimator.cli.filter:main"
+histogram = "attpc_estimator.cli.histogram:main"
 relabel = "attpc_estimator.cli.relabel:main"
-saturation = "attpc_estimator.cli.saturation:main"
-line_distance = "attpc_estimator.cli.line_distance:main"
 webui = "attpc_estimator.cli.webui:main"
 pointcloud = "attpc_estimator.pipeline.pointcloud:main"
 

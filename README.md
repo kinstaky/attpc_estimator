@@ -1,6 +1,6 @@
-# Trace Label
+# ATTPC Estimator
 
-Trace Label is a local web app for browsing detector traces and assigning labels through a keyboard-first WebUI. The backend is a FastAPI service, and the frontend is a Vue app served from `frontend/dist`.
+This project is for estimating the data get from experiment using AT-TPC before the real batch processing. Before processing data, we should know what data looks like, which algorithm shall we choose, and what is the value of parameters. I hope this project can answer this question and tell us why should we processing data in this way.
 
 ## Requirements
 
@@ -41,8 +41,8 @@ uv run label -w <workspace> -r <run> -d <sqlite-dir>
 Generate a 2D histogram of FFT CDF values with:
 
 ```bash
-uv run cdf -t <trace-path> -w <workspace> -r <run>
-uv run cdf -t <trace-path> -w <workspace> -r <run> --labeled
+uv run histogram cdf -t <trace-path> -w <workspace> -r <run>
+uv run histogram cdf -t <trace-path> -w <workspace> -r <run> --labeled
 ```
 
 CDF arguments:
@@ -52,7 +52,7 @@ CDF arguments:
 - `-r`, `--run`: required run identifier
 - `--baseline-window-scale`: optional FFT baseline-removal scale, default `20.0`
 
-The `cdf` command writes:
+The `histogram cdf` command writes:
 
 - full traces: `workspace/run_<run>_cdf.npy`
 - labeled traces: `workspace/run_<run>_labeled_cdf.npz`
@@ -60,8 +60,8 @@ The `cdf` command writes:
 Generate peak-amplitude histograms with:
 
 ```bash
-uv run amplitude -t <trace-path> -w <workspace> -r <run>
-uv run amplitude -t <trace-path> -w <workspace> -r <run> --labeled
+uv run histogram amplitude -t <trace-path> -w <workspace> -r <run>
+uv run histogram amplitude -t <trace-path> -w <workspace> -r <run> --labeled
 ```
 
 Generate a simple filter file for the viewer with:

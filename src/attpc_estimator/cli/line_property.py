@@ -6,4 +6,4 @@ from .histogram import main as histogram_main
 
 
 def main() -> None:
-    histogram_main(["saturation", *sys.argv[1:]])
+    histogram_main(["line_property", *sys.argv[1:]])

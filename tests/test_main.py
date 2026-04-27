@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from attpc_estimator.cli import webui
+from attpc_estimator.process.line_pipeline import MergeConfig, RansacConfig
 
 
 def test_webui_main_uses_cli_workspace_and_trace_path(tmp_path, monkeypatch) -> None:
@@ -25,6 +26,8 @@ def test_webui_main_uses_cli_workspace_and_trace_path(tmp_path, monkeypatch) -> 
             saturation_drop_threshold=10.0,
             saturation_window_radius=16,
             default_run=None,
+            ransac_config=RansacConfig(),
+            merge_config=MergeConfig(),
             verbose=False,
         ) -> None:
             captured["trace_path"] = trace_path
@@ -35,12 +38,32 @@ def test_webui_main_uses_cli_workspace_and_trace_path(tmp_path, monkeypatch) -> 
             captured["saturation_drop_threshold"] = saturation_drop_threshold
             captured["saturation_window_radius"] = saturation_window_radius
             captured["default_run"] = default_run
+            captured["ransac_config"] = ransac_config
+            captured["merge_config"] = merge_config
             captured["verbose"] = verbose
 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["webui", "-t", str(trace_root), "-w", str(workspace)],
+        [
+            "webui",
+            "-t",
+            str(trace_root),
+            "-w",
+            str(workspace),
+            "--port",
+            "8765",
+            "--baseline-window-scale",
+            "10.0",
+            "--bitflip-baseline",
+            "10.0",
+            "--saturation-threshold",
+            "2000.0",
+            "--saturation-drop-threshold",
+            "10.0",
+            "--saturation-window-radius",
+            "16",
+        ],
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(webui, "EstimatorService", DummyService)
@@ -59,6 +82,8 @@ def test_webui_main_uses_cli_workspace_and_trace_path(tmp_path, monkeypatch) -> 
     assert captured["saturation_threshold"] == 2000.0
     assert captured["saturation_drop_threshold"] == 10.0
     assert captured["saturation_window_radius"] == 16
+    assert captured["ransac_config"] == RansacConfig()
+    assert captured["merge_config"] == MergeConfig()
 
 
 def test_webui_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
@@ -87,6 +112,18 @@ def test_webui_main_reads_options_from_config_file(tmp_path, monkeypatch) -> Non
                 "threshold = 2100.0",
                 "drop_threshold = 15.0",
                 "window_radius = 12",
+                "",
+                "[findline.ransac]",
+                "residual_threshold = 18.0",
+                "max_trials = 60",
+                "max_iterations = 11",
+                "target_labeled_ratio = 0.9",
+                "min_inliers = 22",
+                "max_start_radius = 45.0",
+                "",
+                "[findline.mergeline]",
+                "distance_threshold = 17.0",
+                "angle_threshold = 4.0",
             ]
         ),
         encoding="utf-8",
@@ -104,6 +141,8 @@ def test_webui_main_reads_options_from_config_file(tmp_path, monkeypatch) -> Non
             saturation_drop_threshold=10.0,
             saturation_window_radius=16,
             default_run=None,
+            ransac_config=RansacConfig(),
+            merge_config=MergeConfig(),
             verbose=False,
         ) -> None:
             captured["trace_path"] = trace_path
@@ -114,6 +153,8 @@ def test_webui_main_reads_options_from_config_file(tmp_path, monkeypatch) -> Non
             captured["saturation_drop_threshold"] = saturation_drop_threshold
             captured["saturation_window_radius"] = saturation_window_radius
             captured["default_run"] = default_run
+            captured["ransac_config"] = ransac_config
+            captured["merge_config"] = merge_config
             captured["verbose"] = verbose
 
     monkeypatch.setattr(sys, "argv", ["webui", "-c", str(config_path)])
@@ -133,6 +174,18 @@ def test_webui_main_reads_options_from_config_file(tmp_path, monkeypatch) -> Non
     assert captured["saturation_threshold"] == 2100.0
     assert captured["saturation_drop_threshold"] == 15.0
     assert captured["saturation_window_radius"] == 12
+    assert captured["ransac_config"] == RansacConfig(
+        residual_threshold=18.0,
+        max_trials=60,
+        max_iterations=11,
+        target_labeled_ratio=0.9,
+        min_inliers=22,
+        max_start_radius=45.0,
+    )
+    assert captured["merge_config"] == MergeConfig(
+        distance_threshold=17.0,
+        angle_threshold=4.0,
+    )
 
 
 def test_webui_main_passes_verbose_to_service(tmp_path, monkeypatch) -> None:
@@ -154,6 +207,8 @@ def test_webui_main_passes_verbose_to_service(tmp_path, monkeypatch) -> None:
             saturation_drop_threshold=10.0,
             saturation_window_radius=16,
             default_run=None,
+            ransac_config=RansacConfig(),
+            merge_config=MergeConfig(),
             verbose=False,
         ) -> None:
             captured["trace_path"] = trace_path
@@ -164,12 +219,33 @@ def test_webui_main_passes_verbose_to_service(tmp_path, monkeypatch) -> None:
             captured["saturation_drop_threshold"] = saturation_drop_threshold
             captured["saturation_window_radius"] = saturation_window_radius
             captured["default_run"] = default_run
+            captured["ransac_config"] = ransac_config
+            captured["merge_config"] = merge_config
             captured["verbose"] = verbose
 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["webui", "-t", str(trace_root), "-w", str(workspace), "--verbose"],
+        [
+            "webui",
+            "-t",
+            str(trace_root),
+            "-w",
+            str(workspace),
+            "--port",
+            "8765",
+            "--baseline-window-scale",
+            "10.0",
+            "--bitflip-baseline",
+            "10.0",
+            "--saturation-threshold",
+            "2000.0",
+            "--saturation-drop-threshold",
+            "10.0",
+            "--saturation-window-radius",
+            "16",
+            "--verbose",
+        ],
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(webui, "EstimatorService", DummyService)

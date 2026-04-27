@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ..model.label import NORMAL_BUCKETS, StoredLabel
 from ..model.trace import TraceRef
-from ..storage.labels_db import LabelRepository
+from ..storage.labels_db import LabelRepository, POINTCLOUD_LABEL_BUCKETS
 
 RESERVED_SHORTCUTS = {
     "arrowleft",
@@ -57,6 +57,26 @@ def normal_summary(repository: LabelRepository) -> list[dict[str, int | str]]:
             "count": counts[bucket],
         }
         for bucket in NORMAL_BUCKETS
+    ]
+
+
+def pointcloud_bucket_title(bucket: str) -> str:
+    if bucket == "1":
+        return "1 line"
+    if bucket == "6+":
+        return "6+ lines"
+    return f"{bucket} lines"
+
+
+def pointcloud_summary(repository: LabelRepository) -> list[dict[str, int | str]]:
+    counts = repository.get_pointcloud_counts()
+    return [
+        {
+            "bucket": bucket,
+            "title": pointcloud_bucket_title(bucket),
+            "count": counts[bucket],
+        }
+        for bucket in POINTCLOUD_LABEL_BUCKETS
     ]
 
 

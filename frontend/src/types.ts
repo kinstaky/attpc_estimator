@@ -1,12 +1,86 @@
 export interface SessionPayload {
-  mode: "label" | "review";
+  mode: "label" | "label_review" | "review" | "pointcloud_label" | "pointcloud_label_review" | "pointcloud";
   run: number | null;
-  source?: "label_set" | "filter_file" | "event_trace" | null;
+  source?: "label_set" | "filter_file" | "event_trace" | "event_id" | null;
   family?: "normal" | "strange" | null;
   label?: string | null;
   filterFile?: string | null;
   eventId?: number | null;
   traceId?: number | null;
+}
+
+export interface ShellUiState {
+  selectedRun: number | null;
+}
+
+export interface LabelUiState {
+  visualMode: "raw" | "cdf" | "curvature";
+}
+
+export interface ReviewUiState {
+  source: "label_set" | "filter_file" | "event_trace";
+  run: number | null;
+  family: "normal" | "strange";
+  label: string;
+  filterFile: string;
+  eventId: number | null;
+  traceId: number | null;
+  visualMode: "raw" | "cdf" | "curvature";
+}
+
+export interface HistogramsUiState {
+  selectedRun: number | null;
+  selectedPhase: "phase1" | "phase2";
+  selectedMetric:
+    | "cdf"
+    | "amplitude"
+    | "baseline"
+    | "bitflip"
+    | "saturation"
+    | "line_distance"
+    | "line_property"
+    | "coplanar";
+  selectedMode: "all" | "labeled" | "filtered";
+  selectedBitflipVariant: "baseline" | "value" | "length" | "count";
+  selectedSaturationVariant: "drop" | "length";
+  selectedHistogramFilter: string;
+  selectedHistogramVeto: boolean;
+  cdfScaleMode: "linear" | "log";
+  amplitudeScaleMode: "linear" | "log";
+  cdfRenderMode: "2d" | "projection";
+  cdfProjectionBin: number;
+  labeledSeriesOrder: Record<string, string[]>;
+}
+
+export interface MappingUiState {
+  selectedLayer: "Pads" | "Si-0" | "Si-1";
+  selectedView: "Upstream" | "Downstream";
+  rules: MappingRenderRule[];
+}
+
+export interface PointcloudUiState {
+  source: "event_id" | "label_set";
+  selectedRun: number | null;
+  selectedEventId: number | null;
+  selectedLabel: string;
+  layoutMode: "1x1" | "2x2";
+  panelTypes: string[];
+  selectedTraceIds: number[];
+}
+
+export interface PointcloudLabelUiState {
+  visualMode: "basic" | "detail";
+}
+
+export interface UiStatePayload {
+  route: string;
+  shell: ShellUiState;
+  label: LabelUiState;
+  review: ReviewUiState;
+  histograms: HistogramsUiState;
+  mapping: MappingUiState;
+  pointcloud: PointcloudUiState;
+  pointcloudLabel: PointcloudLabelUiState;
 }
 
 export interface EventIdRange {
@@ -28,6 +102,12 @@ export interface NormalSummaryItem {
 export interface StrangeSummaryItem {
   name: string;
   shortcutKey?: string;
+  count: number;
+}
+
+export interface PointcloudSummaryItem {
+  bucket: string;
+  title: string;
   count: number;
 }
 
@@ -85,6 +165,7 @@ export type HistogramMetric =
   | "bitflip"
   | "saturation"
   | "line_distance"
+  | "line_property"
   | "coplanar";
 export type HistogramMode = "all" | "labeled" | "filtered";
 export type HistogramVariant =
@@ -109,9 +190,11 @@ export interface BootstrapPayload {
     Record<HistogramMetric, HistogramAvailabilityEntry>
   >;
   normalSummary: NormalSummaryItem[];
+  pointcloudSummary: PointcloudSummaryItem[];
   strangeSummary: StrangeSummaryItem[];
   strangeLabels: StrangeLabel[];
   session: SessionPayload;
+  uiState: UiStatePayload;
 }
 
 export interface HistogramSeries {
@@ -224,6 +307,7 @@ export interface LabelAssignResponse {
 export interface SessionResponse {
   session: SessionPayload;
   trace?: TracePayload | null;
+  event?: PointcloudLabelEventPayload | null;
   traceCount?: number;
 }
 
@@ -246,6 +330,7 @@ export interface PointcloudHit {
   padId: number;
   timeBucket: number;
   scale: number;
+  mergedLabel: number;
 }
 
 export interface PointcloudEventPayload {
@@ -254,6 +339,12 @@ export interface PointcloudEventPayload {
   eventIdRange: EventIdRange;
   hits: PointcloudHit[];
   processing: PointcloudProcessing;
+}
+
+export interface PointcloudLabelEventPayload extends PointcloudEventPayload {
+  mergedLineCount: number;
+  suggestedLabel: string;
+  currentLabel: string | null;
 }
 
 export interface PointcloudPeak {

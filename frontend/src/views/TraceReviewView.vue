@@ -345,7 +345,7 @@ function currentLabelText(label) {
 }
 
 async function submitReview() {
-  await router.replace({ name: "review", query: review.buildQuery() });
+  await router.replace({ name: "browse-trace", query: review.buildQuery() });
   try {
     await review.loadReviewSet();
   } catch {
@@ -390,12 +390,50 @@ function reviewQueryMatchesState(query) {
   );
 }
 
+function reviewQueryMatchesSession(query) {
+  const session = shell.state.bootstrap?.session;
+  if (!session || session.mode !== "review") {
+    return false;
+  }
+  const source = query.source === "filter_file"
+    ? "filter_file"
+    : query.source === "event_trace"
+      ? "event_trace"
+      : "label_set";
+  if (session.source !== source) {
+    return false;
+  }
+  if (source === "filter_file") {
+    return session.filterFile === (typeof query.filterFile === "string" ? query.filterFile : null);
+  }
+  if (source === "event_trace") {
+    return (
+      session.run === (query.run === undefined ? null : Number(query.run))
+      && session.eventId === (query.eventId === undefined ? null : Number(query.eventId))
+      && session.traceId === (query.traceId === undefined ? null : Number(query.traceId))
+    );
+  }
+  return (
+    session.run === (query.run === undefined ? null : Number(query.run))
+    && session.family === (query.family === "strange" ? "strange" : "normal")
+    && session.label === (typeof query.label === "string" ? query.label : null)
+  );
+}
+
 async function syncFromRoute(query) {
   if (!hasReviewQuery(query)) {
     return;
   }
   const shouldReload = !reviewQueryMatchesState(query) || !review.state.currentTrace;
   review.applyQuery(query);
+  if (shouldReload && reviewQueryMatchesSession(query) && !review.state.currentTrace) {
+    try {
+      await review.restoreCurrentSession();
+      return;
+    } catch {
+      // Store already captured the error.
+    }
+  }
   if (shouldReload) {
     try {
       await review.loadReviewSet();
@@ -485,7 +523,7 @@ onBeforeUnmount(() => {
 watch(
   () => route.query,
   (query) => {
-    if (!isActive.value || route.name !== "review") {
+    if (!isActive.value || route.name !== "browse-trace") {
       return;
     }
     void syncFromRoute(query);

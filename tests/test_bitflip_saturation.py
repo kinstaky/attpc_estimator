@@ -7,6 +7,7 @@ import h5py
 import numpy as np
 
 import attpc_estimator.cli.bitflip as bitflip_cli
+import attpc_estimator.cli.histogram as histogram_cli
 from attpc_estimator.cli.baseline import main as baseline_main
 from attpc_estimator.cli.saturation import main as saturation_main
 from attpc_estimator.process.bitflip import (
@@ -260,6 +261,9 @@ def test_baseline_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
             str(workspace),
             "-r",
             "8",
+            "--baseline-window-scale",
+            "10.0",
+            "--no-labeled",
         ],
     )
     baseline_main()
@@ -281,7 +285,7 @@ def test_bitflip_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
         {1: [_qualified_bitflip_trace()]},
     )
     monkeypatch.setattr(
-        bitflip_cli,
+        histogram_cli,
         "build_bitflip_histograms",
         lambda **_: {
             "trace_count": np.int64(3),
@@ -303,10 +307,13 @@ def test_bitflip_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
             str(workspace),
             "-r",
             "8",
-                "--baseline",
-                "1",
-            ],
-        )
+            "--baseline-window-scale",
+            "10.0",
+            "--baseline",
+            "1",
+            "--no-labeled",
+        ],
+    )
     bitflip_cli.main()
 
     payload = np.load(workspace / "histograms" / "run_0008_bitflip.npz")
@@ -338,12 +345,15 @@ def test_saturation_main_writes_expected_artifact(tmp_path, monkeypatch) -> None
             str(workspace),
             "-r",
             "8",
+            "--baseline-window-scale",
+            "10.0",
             "--threshold",
             "2000",
             "--drop-threshold",
             "10",
             "--window-radius",
             "4",
+            "--no-labeled",
         ],
     )
     saturation_main()

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
 from attpc_estimator.service.pointcloud import PointcloudService
 
@@ -171,5 +172,107 @@ def test_pointcloud_service_prefetches_neighbor_events(tmp_path: Path) -> None:
         assert service._prefetcher.get_cached((7, 1)) is not None
         assert service._prefetcher.get_cached((7, 8)) is not None
         assert service._prefetcher.get_cached((7, 9)) is None
+    finally:
+        service.close()
+
+
+def test_pointcloud_service_filters_hits_outside_detector_z_range(tmp_path: Path) -> None:
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    _write_trace_file(trace_root / "run_0007.h5", [1])
+    with h5py.File(pointcloud_root / "run_0007.h5", "w") as handle:
+        cloud = handle.create_group("cloud")
+        cloud.attrs["min_event"] = 1
+        cloud.attrs["max_event"] = 1
+        cloud.attrs["fft_window_scale"] = 20.0
+        cloud.attrs["micromegas_time_bucket"] = 10.0
+        cloud.attrs["window_time_bucket"] = 560.0
+        cloud.attrs["detector_length"] = 1000.0
+        cloud.create_dataset(
+            "cloud_1",
+            data=np.asarray(
+                [
+                    [0.0, 0.0, -1.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0],
+                    [1.0, 0.0, 50.0, 20.0, 30.0, 20.0, 22.0, 1.0, 1.0],
+                    [2.0, 0.0, 1500.0, 30.0, 40.0, 30.0, 33.0, 1.0, 2.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
+
+    service = PointcloudService(trace_path=trace_root, workspace=workspace, baseline_window_scale=10.0)
+    try:
+        payload = service.get_event(run=7, event_id=1)
+        assert [hit["traceId"] for hit in payload["hits"]] == [1]
+        assert payload["hits"][0]["z"] == 50.0
+    finally:
+        service.close()
+
+
+def test_pointcloud_service_uses_explicit_fallbacks_when_attrs_are_missing(tmp_path: Path) -> None:
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    _write_trace_file(trace_root / "run_0007.h5", [1])
+    with h5py.File(pointcloud_root / "run_0007.h5", "w") as handle:
+        cloud = handle.create_group("cloud")
+        cloud.attrs["min_event"] = 1
+        cloud.attrs["max_event"] = 1
+        cloud.create_dataset(
+            "cloud_1",
+            data=np.asarray(
+                [[0.0, 0.0, 25.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0]],
+                dtype=np.float64,
+            ),
+        )
+
+    service = PointcloudService(
+        trace_path=trace_root,
+        workspace=workspace,
+        baseline_window_scale=10.0,
+        micromegas_time_bucket=11.0,
+        window_time_bucket=555.0,
+        detector_length=900.0,
+    )
+    try:
+        payload = service.get_event(run=7, event_id=1)
+        assert payload["processing"] == {
+            "fftWindowScale": 10.0,
+            "micromegasTimeBucket": 11.0,
+            "windowTimeBucket": 555.0,
+            "detectorLength": 900.0,
+        }
+    finally:
+        service.close()
+
+
+def test_pointcloud_service_raises_when_required_processing_config_is_missing(tmp_path: Path) -> None:
+    trace_root = tmp_path / "traces"
+    trace_root.mkdir()
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    _write_trace_file(trace_root / "run_0007.h5", [1])
+    with h5py.File(pointcloud_root / "run_0007.h5", "w") as handle:
+        cloud = handle.create_group("cloud")
+        cloud.attrs["min_event"] = 1
+        cloud.attrs["max_event"] = 1
+        cloud.create_dataset(
+            "cloud_1",
+            data=np.asarray(
+                [[0.0, 0.0, 25.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0]],
+                dtype=np.float64,
+            ),
+        )
+
+    service = PointcloudService(trace_path=trace_root, workspace=workspace, baseline_window_scale=10.0)
+    try:
+        with pytest.raises(ValueError, match="micromegas_time_bucket"):
+            service.get_event(run=7, event_id=1)
     finally:
         service.close()

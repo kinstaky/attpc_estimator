@@ -9,8 +9,10 @@ import numpy as np
 from attpc_estimator.cli.line_distance import main as line_distance_main
 from attpc_estimator.process.line_distance import (
     LineDistanceHistogramConfig,
+    LineCluster,
     RansacConfig,
     build_line_distance_histograms,
+    ordered_centroid_to_line_distance,
 )
 from attpc_estimator.service.histograms import HistogramService
 
@@ -67,7 +69,6 @@ def test_build_line_distance_histograms_accumulates_expected_counts(tmp_path: Pa
         pointcloud_file_path=pointcloud_path,
         run=8,
         ransac_config=RansacConfig(
-            min_samples=3,
             residual_threshold=1.0,
             max_trials=100,
             max_iterations=6,
@@ -86,7 +87,23 @@ def test_build_line_distance_histograms_accumulates_expected_counts(tmp_path: Pa
     assert int(np.asarray(payload["distances1_histogram"]).sum()) >= 1
     assert int(np.asarray(payload["distances2_histogram"]).sum()) >= 1
     assert int(np.asarray(payload["joint_histogram"]).sum()) >= 1
-    assert int(np.asarray(payload["point_line_distance_histograms"]).sum()) > 0
+
+
+def test_ordered_centroid_to_line_distance_uses_second_centroid_against_first_line() -> None:
+    first = LineCluster(
+        inlier_indices=np.asarray([0, 1, 2], dtype=np.int64),
+        point_rows=np.empty((0, 4), dtype=np.float64),
+        centroid=np.asarray([0.0, 0.0, 0.0], dtype=np.float64),
+        direction=np.asarray([0.0, 0.0, 1.0], dtype=np.float64),
+    )
+    second = LineCluster(
+        inlier_indices=np.asarray([3, 4, 5], dtype=np.int64),
+        point_rows=np.empty((0, 4), dtype=np.float64),
+        centroid=np.asarray([3.0, 4.0, 5.0], dtype=np.float64),
+        direction=np.asarray([1.0, 0.0, 0.0], dtype=np.float64),
+    )
+
+    assert ordered_centroid_to_line_distance(first, second) == 5.0
 
 
 def test_line_distance_main_writes_histogram_artifact(tmp_path: Path, monkeypatch) -> None:
@@ -105,8 +122,16 @@ def test_line_distance_main_writes_histogram_artifact(tmp_path: Path, monkeypatc
             "8",
             "--residual-threshold",
             "1.0",
+            "--max-trials",
+            "100",
+            "--max-iterations",
+            "6",
+            "--target-labeled-ratio",
+            "0.8",
             "--min-inliers",
             "3",
+            "--max-start-radius",
+            "40.0",
         ],
     )
     line_distance_main()
@@ -148,5 +173,6 @@ def test_histogram_service_loads_line_distance_payload(tmp_path: Path) -> None:
     result = service.get_histogram(metric="line_distance", mode="all", run=8)
     assert result["metric"] == "line_distance"
     assert result["mode"] == "all"
-    assert len(result["plots"]) == 6
+    assert len(result["plots"]) == 5
     assert result["plots"][0]["key"] == "line_count"
+    assert result["plots"][2]["title"] == "Second-centroid to first-line distance"

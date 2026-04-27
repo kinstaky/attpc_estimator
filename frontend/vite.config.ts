@@ -3,6 +3,18 @@ import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    alias: {
+      buffer: "buffer/",
+    },
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: "globalThis",
+      },
+    },
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

@@ -1,6 +1,7 @@
 import { reactive } from "vue";
 
 import {
+  getCurrentTrace,
   nextEvent,
   nextTrace,
   previousEvent,
@@ -10,7 +11,7 @@ import {
   setLabelReviewSession,
 } from "../api";
 import { useShellStore } from "./shell";
-import type { TracePayload } from "../types";
+import type { ReviewUiState, SessionResponse, TracePayload } from "../types";
 
 type ReviewSource = "label_set" | "filter_file" | "event_trace";
 type ReviewFamily = "normal" | "strange";
@@ -229,11 +230,27 @@ async function loadReviewSet(): Promise<void> {
       }
       payload = await setFilterReviewSession(state.filterFile);
     }
+    syncSession(payload);
     state.currentTrace = payload.trace ?? null;
     syncDirectSelectionFromTrace(state.currentTrace);
     if (!payload.trace) {
       state.statusMessage = "The selected review set does not contain any traces.";
     }
+  } catch (error) {
+    state.currentTrace = null;
+    state.error = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function restoreCurrentSession(): Promise<void> {
+  state.loading = true;
+  clearTransientUi();
+  try {
+    state.currentTrace = await getCurrentTrace();
+    syncDirectSelectionFromTrace(state.currentTrace);
   } catch (error) {
     state.currentTrace = null;
     state.error = error instanceof Error ? error.message : String(error);
@@ -304,6 +321,38 @@ function syncDirectSelectionFromTrace(trace: TracePayload | null): void {
   state.traceId = trace.traceId;
 }
 
+function syncSession(payload: SessionResponse): void {
+  useShellStore().updateSession(payload.session);
+}
+
+function applyUiState(payload: ReviewUiState | null | undefined): void {
+  if (!payload) {
+    return;
+  }
+  state.source = payload.source;
+  state.run = payload.run;
+  state.family = payload.family;
+  state.label = payload.label;
+  state.filterFile = payload.filterFile;
+  state.eventId = payload.eventId;
+  state.traceId = payload.traceId;
+  state.visualMode = payload.visualMode;
+  ensureDefaults();
+}
+
+function serializeUiState(): ReviewUiState {
+  return {
+    source: state.source,
+    run: state.run,
+    family: state.family,
+    label: state.label,
+    filterFile: state.filterFile,
+    eventId: state.eventId,
+    traceId: state.traceId,
+    visualMode: state.visualMode,
+  };
+}
+
 export function useReviewStore() {
   return {
     state,
@@ -317,9 +366,12 @@ export function useReviewStore() {
     setTraceId,
     setVisualMode,
     toggleVisualMode,
+    applyUiState,
+    serializeUiState,
     applyQuery,
     buildQuery,
     loadReviewSet,
+    restoreCurrentSession,
     nextReviewTrace,
     previousReviewTrace,
     nextReviewEvent,

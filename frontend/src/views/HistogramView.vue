@@ -202,6 +202,13 @@
       :scale-mode="store.scaleMode.value"
     />
 
+    <LinePropertyPlots
+      v-else-if="store.state.selectedMetric === 'line_property' && (store.state.histogram?.plots?.length || 0) > 0"
+      class="mt-4"
+      :plots="store.state.histogram?.plots || []"
+      :scale-mode="store.scaleMode.value"
+    />
+
     <v-row
       v-else-if="store.state.histogram?.series?.length"
       class="mt-4"
@@ -276,6 +283,7 @@
 import { computed, onMounted, ref } from "vue";
 
 import LineDistancePlots from "../components/LineDistancePlots.vue";
+import LinePropertyPlots from "../components/LinePropertyPlots.vue";
 import ResultPlot from "../components/ResultPlot.vue";
 import { useHistogramStore } from "../stores/histograms";
 import { useShellStore } from "../stores/shell";
@@ -309,6 +317,7 @@ const metricOptions = computed(() => {
   if (store.state.selectedPhase === "phase2") {
     return [
       { title: "Line distance", value: "line_distance" },
+      { title: "Line property", value: "line_property" },
       { title: "Coplanarity (λ₃/λ₁)", value: "coplanar" },
     ];
   }

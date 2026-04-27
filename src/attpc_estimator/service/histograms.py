@@ -18,6 +18,7 @@ from ..process.baseline import (
 )
 from ..process.cdf import _accumulate_cdf_histogram_numba
 from ..process.line_distance import serialize_line_distance_payload
+from ..process.line_property import serialize_line_property_payload
 from ..process.bitflip import (
     BITFLIP_BASELINE_DEFAULT,
     BITFLIP_BIN_COUNTS,
@@ -53,6 +54,7 @@ SUPPORTED_METRICS = (
     "bitflip",
     "saturation",
     "line_distance",
+    "line_property",
     "coplanar",
 )
 DEFAULT_VARIANTS = {
@@ -75,6 +77,7 @@ ARTIFACT_SUFFIXES = {
     ("saturation", "all"): ("_saturation.npz",),
     ("saturation", "labeled"): ("_labeled_saturation.npz",),
     ("line_distance", "all"): ("_line_distance.npz",),
+    ("line_property", "all"): ("_line_property.npz",),
     ("coplanar", "all"): ("_coplanar.npz",),
 }
 ONE_D_METRIC_METADATA = {
@@ -244,6 +247,8 @@ class HistogramService:
             )
         if metric == "line_distance":
             return serialize_line_distance_payload(run, _mapping_payload(payload))
+        if metric == "line_property":
+            return serialize_line_property_payload(run, _mapping_payload(payload))
         return self._normalize_generic_1d_payload(
             metric=metric,
             variant=resolved_variant,
@@ -300,7 +305,7 @@ class HistogramService:
         metric: str,
         has_filter_files: bool,
     ) -> dict[str, bool]:
-        if metric in {"line_distance", "coplanar"}:
+        if metric in {"line_distance", "line_property", "coplanar"}:
             return {
                 "all": self._artifact_path(metric=metric, mode="all", run=run) is not None,
                 "labeled": False,
@@ -326,13 +331,13 @@ class HistogramService:
     ) -> str | None:
         if metric not in SUPPORTED_METRICS:
             raise ValueError(
-                "metric must be 'cdf', 'amplitude', 'baseline', 'bitflip', 'saturation', 'line_distance', or 'coplanar'"
+                "metric must be 'cdf', 'amplitude', 'baseline', 'bitflip', 'saturation', 'line_distance', 'line_property', or 'coplanar'"
             )
         if mode not in {"all", "labeled", "filtered"}:
             raise ValueError("mode must be 'all', 'labeled', or 'filtered'")
         if run not in self.run_files:
             raise ValueError(f"run {run} is not available")
-        if metric in {"line_distance", "coplanar"} and mode != "all":
+        if metric in {"line_distance", "line_property", "coplanar"} and mode != "all":
             raise ValueError(f"metric '{metric}' only supports mode 'all'")
         if mode == "filtered":
             self._filter_path(filter_file)

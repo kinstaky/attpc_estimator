@@ -20,7 +20,14 @@ from ..process.filter import (
     normalize_amplitude_range,
 )
 from ..storage.run_paths import filter_dir, format_run_id
-from .config import parse_run, parse_toml_config, root_config_values, table_config_values
+from .config import (
+    argument_config_kwargs,
+    bool_argument_config_kwargs,
+    parse_run,
+    parse_toml_config,
+    root_config_values,
+    table_config_values,
+)
 from .progress import tqdm_reporter
 
 
@@ -132,23 +139,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-t",
         "--trace-path",
-        required="trace_path" not in config,
-        default=config.get("trace_path"),
+        **argument_config_kwargs(config, "trace_path"),
         help="Path to a trace file or a directory containing run_<run>.h5 files",
     )
     parser.add_argument(
         "-w",
         "--workspace",
-        required="workspace" not in config,
-        default=config.get("workspace"),
+        **argument_config_kwargs(config, "workspace"),
         help="Workspace directory where the filter file will be written",
     )
     parser.add_argument(
         "-r",
         "--run",
-        required="run" not in config,
         type=parse_run,
-        default=config.get("run"),
+        **argument_config_kwargs(config, "run"),
         help="Run identifier to filter",
     )
     parser.add_argument(
@@ -161,32 +165,29 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cdf",
-        action="store_true",
-        default=bool(filter_config.get("use_cdf", False)),
+        **bool_argument_config_kwargs(filter_config, "use_cdf"),
         help="Keep traces whose CDF F(60) is below 0.6",
     )
     parser.add_argument(
         "--bitflip",
-        action="store_true",
-        default=bool(filter_config.get("use_bitflip", False)),
+        **bool_argument_config_kwargs(filter_config, "use_bitflip"),
         help="Keep traces containing at least the requested number of qualified bitflip segments",
     )
     parser.add_argument(
         "--bitflip-baseline",
         type=float,
-        default=bitflip_config.get("baseline", 10.0),
+        **argument_config_kwargs(bitflip_config, "baseline"),
         help="Absolute second-derivative threshold used to classify baseline points for bitflip filtering",
     )
     parser.add_argument(
         "--bitflip-min-count",
         type=int,
-        default=bitflip_config.get("min_count", 1),
+        **argument_config_kwargs(bitflip_config, "min_count"),
         help="Minimum number of qualified bitflip segments required to keep a trace",
     )
     parser.add_argument(
         "--saturation",
-        action="store_true",
-        default=bool(filter_config.get("use_saturation", False)),
+        **bool_argument_config_kwargs(filter_config, "use_saturation"),
         help="Keep traces with a flat high-amplitude saturation plateau",
     )
     parser.add_argument(
@@ -204,37 +205,37 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--saturation-threshold",
         type=float,
-        default=saturation_config.get("threshold", 2000.0),
+        **argument_config_kwargs(saturation_config, "threshold"),
         help="Minimum trace maximum required before evaluating saturation plateau length",
     )
     parser.add_argument(
         "--baseline-window-scale",
         type=float,
-        default=filter_config.get("baseline_window_scale", 10.0),
+        **argument_config_kwargs(filter_config, "baseline_window_scale"),
         help="Baseline-removal filter scale used before peak detection and FFT",
     )
     parser.add_argument(
         "--peak-separation",
         type=float,
-        default=amplitude_config.get("peak_separation", 50.0),
+        **argument_config_kwargs(amplitude_config, "peak_separation"),
         help="Minimum separation between peaks",
     )
     parser.add_argument(
         "--peak-prominence",
         type=float,
-        default=amplitude_config.get("peak_prominence", 20.0),
+        **argument_config_kwargs(amplitude_config, "peak_prominence"),
         help="Prominence of peaks",
     )
     parser.add_argument(
         "--peak-width",
         type=float,
-        default=amplitude_config.get("peak_width", 50.0),
+        **argument_config_kwargs(amplitude_config, "peak_width"),
         help="Maximum width of peaks",
     )
     parser.add_argument(
         "--limit",
         type=int,
-        default=filter_config.get("limit", DEFAULT_TRACE_LIMIT),
+        **argument_config_kwargs(filter_config, "limit"),
         help=(
             f"Maximum number of matching traces to keep, default {DEFAULT_TRACE_LIMIT}. "
             "Use 0 to keep every matching trace in the selected run."

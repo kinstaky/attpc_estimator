@@ -127,7 +127,18 @@ def test_cdf_main_writes_labeled_output_for_selected_run(tmp_path, monkeypatch) 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["cdf", "-t", str(trace_root), "-w", str(workspace), "-r", "0008", "--labeled"],
+        [
+            "cdf",
+            "-t",
+            str(trace_root),
+            "-w",
+            str(workspace),
+            "-r",
+            "0008",
+            "--baseline-window-scale",
+            "12.5",
+            "--labeled",
+        ],
     )
     main()
 

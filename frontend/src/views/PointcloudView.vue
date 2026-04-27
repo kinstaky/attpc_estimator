@@ -2,10 +2,10 @@
   <v-container class="page-container" fluid>
     <div class="page-header">
       <div>
-        <p class="page-kicker">Phase 1</p>
-        <h1>Pointcloud viewer</h1>
+        <p class="page-kicker">Browse</p>
+        <h1>Pointcloud review</h1>
         <p class="page-copy">
-          Inspect first-stage ATTPC hits, sync 2D/3D point views, and overlay baseline-removed traces for selected pads.
+          Inspect phase-1 pointcloud events by direct event id or by saved pointcloud labels, with synced 2D/3D views and trace overlays.
         </p>
       </div>
     </div>
@@ -13,49 +13,79 @@
     <v-card class="control-card" rounded="xl">
       <v-card-text>
         <v-row dense>
-          <v-col cols="12" md="2">
+          <v-col cols="12" md="3">
+            <v-select
+              :items="sourceOptions"
+              item-title="title"
+              item-value="value"
+              label="Browse source"
+              :model-value="store.state.source"
+              variant="outlined"
+              @update:model-value="store.setSource"
+            />
+          </v-col>
+          <v-col cols="12" md="3">
             <v-select
               :items="runOptions"
               item-title="title"
               item-value="value"
               label="Run"
-              :model-value="selectedRun"
+              :model-value="store.state.selectedRun"
               variant="outlined"
-              @update:model-value="setRun"
+              @update:model-value="store.setRun"
             />
           </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field
-              label="Event id"
-              type="number"
-              :model-value="selectedEventId"
-              :hint="eventRangeText"
-              persistent-hint
-              variant="outlined"
-              @update:model-value="setEventId"
+          <template v-if="store.state.source === 'event_id'">
+            <v-col cols="12" md="3">
+              <v-text-field
+                label="Event id"
+                type="number"
+                :model-value="store.state.selectedEventId"
+                :hint="eventRangeText"
+                persistent-hint
+                variant="outlined"
+                @update:model-value="store.setEventId"
+              />
+            </v-col>
+          </template>
+          <template v-else>
+            <v-col cols="12" md="3">
+              <v-select
+                :items="pointcloudLabelOptions"
+                item-title="title"
+                item-value="value"
+                label="Pointcloud label"
+                :model-value="store.state.selectedLabel"
+                variant="outlined"
+                @update:model-value="store.setSelectedLabel"
+              />
+            </v-col>
+          </template>
+          <v-col cols="12" md="2" class="d-flex align-end">
+            <v-switch
+              class="pointcloud-layout-switch"
+              inset
+              color="primary"
+              :label="`Layout ${store.state.layoutMode}`"
+              :model-value="store.state.layoutMode === '2x2'"
+              @update:model-value="toggleLayout"
             />
           </v-col>
-          <v-col cols="12" md="2">
-            <v-select
-              :items="layoutOptions"
-              item-title="title"
-              item-value="value"
-              label="Layout"
-              :model-value="layoutMode"
-              variant="outlined"
-              @update:model-value="setLayoutMode"
-            />
-          </v-col>
-          <v-col cols="12" md="6" class="d-flex align-center justify-end ga-2">
-            <v-btn variant="text" @click="previousEvent">Previous event</v-btn>
-            <v-btn variant="text" @click="nextEvent">Next event</v-btn>
-            <v-btn color="primary" :loading="loading" @click="loadEvent">Load event</v-btn>
+          <v-col cols="12" md="1" class="d-flex align-end justify-end">
+            <v-btn
+              class="pointcloud-load-button"
+              color="primary"
+              :loading="store.state.loading"
+              @click="store.loadEvent"
+            >
+              Load
+            </v-btn>
           </v-col>
         </v-row>
 
         <v-row dense class="mt-2">
           <v-col
-            v-for="panelIndex in panelCount"
+            v-for="panelIndex in store.panelCount.value"
             :key="panelIndex"
             cols="12"
             md="3"
@@ -65,9 +95,9 @@
               item-title="title"
               item-value="value"
               :label="`Panel ${panelIndex}`"
-              :model-value="panelTypes[panelIndex - 1]"
+              :model-value="store.state.panelTypes[panelIndex - 1]"
               variant="outlined"
-              @update:model-value="(value) => setPanelType(panelIndex - 1, value)"
+              @update:model-value="(value) => store.setPanelType(panelIndex - 1, value)"
             />
           </v-col>
         </v-row>
@@ -75,58 +105,71 @@
     </v-card>
 
     <v-alert
-      v-if="error"
+      v-if="store.state.error"
       class="mt-4"
       color="error"
       icon="mdi-alert-circle-outline"
       rounded="xl"
       variant="tonal"
     >
-      {{ error }}
+      {{ store.state.error }}
     </v-alert>
 
-    <v-card v-if="eventPayload" class="trace-stage-card mt-4" rounded="xl">
+    <v-alert
+      v-else-if="store.state.statusMessage"
+      class="mt-4"
+      color="secondary"
+      icon="mdi-information-outline"
+      rounded="xl"
+      variant="tonal"
+    >
+      {{ store.state.statusMessage }}
+    </v-alert>
+
+    <v-card v-if="store.state.eventPayload" class="trace-stage-card mt-4" rounded="xl">
       <v-card-title class="trace-stage-title">
         <div>
-          <p class="page-kicker">Run {{ eventPayload.run }} · Event {{ eventPayload.eventId }}</p>
-          <h2>{{ eventPayload.hits.length }} hits</h2>
+          <p class="page-kicker">Run {{ store.state.eventPayload.run }} · Event {{ store.state.eventPayload.eventId }}</p>
+          <h2>{{ store.state.eventPayload.hits.length }} in-range hits</h2>
         </div>
         <div class="trace-stage-hints">
-          <span>{{ selectedTraceIds.length }} selected traces</span>
-          <span>Selection starts from pad views.</span>
+          <span>{{ sourceSummary }}</span>
+          <span>Press F to switch layout, J/K or arrows to navigate.</span>
         </div>
       </v-card-title>
 
       <v-card-text>
         <div class="trace-action-toolbar">
           <div class="trace-action-group">
-            <v-btn variant="text" @click="clearSelection">Clear selection</v-btn>
+            <v-btn variant="text" @click="store.previousEvent">Previous event</v-btn>
+            <v-btn variant="text" @click="store.nextEvent">Next event</v-btn>
+            <v-btn variant="text" @click="store.clearSelection">Clear selection</v-btn>
           </div>
           <div class="trace-action-group">
-            <span class="text-medium-emphasis">FFT window {{ eventPayload.processing.fftWindowScale }}</span>
+            <span class="text-medium-emphasis">FFT window {{ store.state.eventPayload.processing.fftWindowScale }}</span>
           </div>
         </div>
 
         <div class="pointcloud-grid" :class="gridClass">
           <section
-            v-for="panelIndex in panelCount"
+            v-for="panelIndex in store.panelCount.value"
             :key="panelIndex"
             class="pointcloud-panel"
           >
             <PointcloudPlot
-              :plot-type="panelTypes[panelIndex - 1]"
-              :layout-mode="layoutMode"
-              :hits="eventPayload.hits"
-              :mapping-pads="mappingPads"
-              :selected-trace-ids="selectedTraceIds"
-              :traces="panelTypes[panelIndex - 1] === 'traces' ? tracePayload.traces : []"
-              :xy-range="xyRange"
-              :projected-range="projectedRange"
-              :camera="camera"
-              @toggle-traces="toggleTraceIds"
-              @update-xy-range="updateXYRange"
-              @update-projected-range="updateProjectedRange"
-              @update-camera="updateCamera"
+              :plot-type="store.state.panelTypes[panelIndex - 1]"
+              :layout-mode="store.state.layoutMode"
+              :hits="store.state.eventPayload.hits"
+              :mapping-pads="store.state.mappingPads"
+              :selected-trace-ids="store.state.selectedTraceIds"
+              :traces="store.state.panelTypes[panelIndex - 1] === 'traces' ? store.state.tracePayload.traces : []"
+              :xy-range="store.state.xyRange"
+              :projected-range="store.state.projectedRange"
+              :camera="store.state.camera"
+              @toggle-traces="store.toggleTraceIds"
+              @update-xy-range="store.updateXYRange"
+              @update-projected-range="store.updateProjectedRange"
+              @update-camera="store.updateCamera"
             />
           </section>
         </div>
@@ -136,50 +179,24 @@
     <v-card v-else class="empty-card mt-4" rounded="xl" variant="tonal">
       <v-card-text>
         <p class="page-kicker">No pointcloud event selected</p>
-        <h2>Choose a run and event, then load the phase-1 data.</h2>
+        <h2>Choose a source and load a pointcloud event.</h2>
       </v-card-text>
     </v-card>
   </v-container>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 
-import { getMappingPads, getPointcloudEvent, getPointcloudTraces } from "../api";
 import PointcloudPlot from "../components/PointcloudPlot.vue";
+import { usePointcloudStore } from "../stores/pointcloud";
 import { useShellStore } from "../stores/shell";
 
 const shell = useShellStore();
-
-const loading = ref(false);
-const error = ref("");
-const eventPayload = ref(null);
-const tracePayload = ref({ traces: [] });
-const mappingPads = ref([]);
-const selectedRun = ref(null);
-const selectedEventId = ref(null);
-const selectedTraceIds = ref([]);
-const layoutMode = ref("1x1");
-const panelTypes = ref(["hits-3d-amplitude", "pads-z", "hits-2d-amplitude", "traces"]);
-const xyRange = ref(null);
-const projectedRange = ref(null);
-const camera = ref(null);
-
-const layoutOptions = [
-  { title: "1x1", value: "1x1" },
-  { title: "1x2", value: "1x2" },
-  { title: "2x2", value: "2x2" },
-];
-
-const plotOptions = [
-  { title: "3D xyz · Q", value: "hits-3d-amplitude" },
-  { title: "2D xy · z", value: "hits-2d-z" },
-  { title: "2D xy · Q", value: "hits-2d-amplitude" },
-  { title: "2D x'y' · Q", value: "hits-2d-pca-amplitude" },
-  { title: "pads · z", value: "pads-z" },
-  { title: "pads · Q", value: "pads-amplitude" },
-  { title: "traces", value: "traces" },
-];
+const store = usePointcloudStore();
+const sourceOptions = store.sourceOptions;
+const plotOptions = store.plotOptions;
+const pointcloudLabelOptions = store.pointcloudLabelOptions;
 
 const runOptions = computed(() =>
   (shell.state.bootstrap?.pointcloudRuns || []).map((run) => ({
@@ -191,204 +208,105 @@ const runOptions = computed(() =>
 const pointcloudEventRanges = computed(() => shell.state.bootstrap?.pointcloudEventRanges || {});
 
 const eventRangeText = computed(() => {
-  if (selectedRun.value === null) {
+  if (store.state.selectedRun === null) {
     return "No run selected";
   }
-  const range = pointcloudEventRanges.value[String(selectedRun.value)];
+  const range = pointcloudEventRanges.value[String(store.state.selectedRun)];
   if (!range) {
     return "No pointcloud file for this run";
   }
   return `Available ${range.min} to ${range.max}`;
 });
 
-const panelCount = computed(() => (layoutMode.value === "1x1" ? 1 : layoutMode.value === "1x2" ? 2 : 4));
+const sourceSummary = computed(() => (
+  store.state.source === "label_set"
+    ? `Browse labeled pointcloud events${store.state.selectedLabel ? ` with label ${store.state.selectedLabel}` : ""}.`
+    : "Browse direct pointcloud events by event id."
+));
+
 const gridClass = computed(() => ({
-  "pointcloud-grid--single": layoutMode.value === "1x1",
-  "pointcloud-grid--double": layoutMode.value === "1x2",
-  "pointcloud-grid--quad": layoutMode.value === "2x2",
+  "pointcloud-grid--single": store.state.layoutMode === "1x1",
+  "pointcloud-grid--quad": store.state.layoutMode === "2x2",
 }));
 
-function setRun(run) {
-  selectedRun.value = run === null || run === "" ? null : Number(run);
-  selectedEventId.value = defaultEventIdForRun(selectedRun.value);
+function toggleLayout(value) {
+  store.setLayoutMode(value ? "2x2" : "1x1");
 }
 
-function setEventId(value) {
-  selectedEventId.value = value === null || value === "" ? null : Number(value);
-}
-
-function setLayoutMode(value) {
-  layoutMode.value = value;
-}
-
-function setPanelType(index, value) {
-  panelTypes.value[index] = value;
-}
-
-function defaultEventIdForRun(run) {
-  if (run === null) {
-    return null;
-  }
-  const range = pointcloudEventRanges.value[String(run)];
-  return range ? Number(range.min) : null;
-}
-
-async function loadEvent() {
-  if (selectedRun.value === null || selectedEventId.value === null) {
-    error.value = "Select a run and event id before loading.";
-    return;
-  }
-  loading.value = true;
-  error.value = "";
-  selectedTraceIds.value = [];
-  tracePayload.value = { traces: [] };
-  xyRange.value = null;
-  projectedRange.value = null;
-  camera.value = null;
-  try {
-    eventPayload.value = await getPointcloudEvent(selectedRun.value, selectedEventId.value);
-  } catch (err) {
-    eventPayload.value = null;
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadSelectedTraces() {
-  if (!eventPayload.value || !selectedTraceIds.value.length) {
-    tracePayload.value = { traces: [] };
-    return;
-  }
-  try {
-    tracePayload.value = await getPointcloudTraces(
-      eventPayload.value.run,
-      eventPayload.value.eventId,
-      selectedTraceIds.value,
-    );
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  }
-}
-
-function toggleTraceIds(traceIds) {
-  const next = [...selectedTraceIds.value];
-  for (const traceId of traceIds || []) {
-    const numeric = Number(traceId);
-    const existingIndex = next.indexOf(numeric);
-    if (existingIndex >= 0) {
-      next.splice(existingIndex, 1);
-    } else {
-      next.push(numeric);
-    }
-  }
-  selectedTraceIds.value = next.slice(-8);
-}
-
-function clearSelection() {
-  selectedTraceIds.value = [];
-}
-
-function sameRange(nextRange, currentRange) {
-  if (nextRange === currentRange) {
-    return true;
-  }
-  if (!nextRange || !currentRange) {
-    return false;
-  }
-  return nextRange.x?.[0] === currentRange.x?.[0]
-    && nextRange.x?.[1] === currentRange.x?.[1]
-    && nextRange.y?.[0] === currentRange.y?.[0]
-    && nextRange.y?.[1] === currentRange.y?.[1];
-}
-
-function updateXYRange(range) {
-  if (range === null && xyRange.value === null) {
-    return;
-  }
-  if (sameRange(range, xyRange.value)) {
-    return;
-  }
-  xyRange.value = range;
-}
-
-function updateProjectedRange(range) {
-  if (range === null && projectedRange.value === null) {
-    return;
-  }
-  if (sameRange(range, projectedRange.value)) {
-    return;
-  }
-  projectedRange.value = range;
-}
-
-function updateCamera(nextCamera) {
-  camera.value = nextCamera;
-}
-
-function nextEvent() {
-  if (!eventPayload.value) {
-    return;
-  }
-  const range = eventPayload.value.eventIdRange;
-  if (eventPayload.value.eventId < range.max) {
-    selectedEventId.value = eventPayload.value.eventId + 1;
-    void loadEvent();
-  }
-}
-
-function previousEvent() {
-  if (!eventPayload.value) {
-    return;
-  }
-  const range = eventPayload.value.eventIdRange;
-  if (eventPayload.value.eventId > range.min) {
-    selectedEventId.value = eventPayload.value.eventId - 1;
-    void loadEvent();
-  }
+function shouldIgnoreKey(event) {
+  const tagName = event.target?.tagName?.toLowerCase();
+  return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
 function onKeydown(event) {
-  const tagName = event.target?.tagName?.toLowerCase();
-  if (
-    tagName === "input"
-    || tagName === "textarea"
-    || tagName === "select"
-    || event.target?.isContentEditable
-  ) {
-    return;
-  }
-  if (loading.value) {
+  if (shouldIgnoreKey(event) || store.state.loading || !store.state.eventPayload) {
     return;
   }
   const key = event.key.toLowerCase();
-  if (key === "j") {
+  if (key === "f") {
     event.preventDefault();
-    nextEvent();
+    store.toggleLayoutMode();
     return;
   }
-  if (key === "k") {
+  if (key === "j" || key === "arrowdown" || key === "arrowright") {
     event.preventDefault();
-    previousEvent();
+    void store.nextEvent();
+    return;
+  }
+  if (key === "k" || key === "arrowup" || key === "arrowleft") {
+    event.preventDefault();
+    void store.previousEvent();
   }
 }
 
 watch(
-  () => selectedTraceIds.value.slice(),
+  () => store.state.selectedTraceIds.slice(),
   () => {
-    void loadSelectedTraces();
+    void store.loadSelectedTraces();
   },
 );
 
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
-  await shell.init();
-  mappingPads.value = await getMappingPads();
-  selectedRun.value = shell.state.bootstrap?.pointcloudRuns?.[0] ?? null;
-  selectedEventId.value = defaultEventIdForRun(selectedRun.value);
+  await store.init();
+  const session = shell.state.bootstrap?.session;
+  if (session?.mode === "pointcloud") {
+    if (session.source === "label_set") {
+      store.setSource("label_set");
+      store.setSelectedLabel(session.label || "");
+    } else {
+      store.setSource("event_id");
+    }
+    if (session.run !== null && session.run !== undefined) {
+      store.setRun(session.run);
+    }
+    if (session.eventId !== null && session.eventId !== undefined) {
+      store.setEventId(session.eventId);
+    }
+    try {
+      await store.restoreCurrentSession();
+    } catch {
+      // Store already holds the error.
+    }
+    return;
+  }
+  if (store.state.selectedRun !== null) {
+    await store.loadEvent();
+  }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
 });
 </script>
+
+<style scoped>
+.pointcloud-layout-switch {
+  width: 100%;
+  margin-inline-end: 12px;
+}
+
+.pointcloud-load-button {
+  min-width: 96px;
+}
+</style>

@@ -10,6 +10,12 @@ import numpy as np
 
 from attpc_storage.hdf5 import PointcloudReader, RawTraceReader
 
+from ..process.line_pipeline import (
+    MergeConfig,
+    RansacConfig,
+    extract_line_clusters,
+    merge_line_clusters,
+)
 from ..storage.run_paths import collect_run_files, pointcloud_dir, resolve_run_file
 from ..utils.trace_data import preprocess_traces
 
@@ -143,11 +149,23 @@ class PointcloudService:
         trace_path: Path,
         workspace: Path,
         baseline_window_scale: float,
+        micromegas_time_bucket: float | None = None,
+        window_time_bucket: float | None = None,
+        detector_length: float | None = None,
         event_prefetch_radius: int = EVENT_PREFETCH_RADIUS,
     ) -> None:
         self.trace_path = trace_path
         self.workspace = workspace
         self.default_baseline_window_scale = float(baseline_window_scale)
+        self.default_micromegas_time_bucket = (
+            None if micromegas_time_bucket is None else float(micromegas_time_bucket)
+        )
+        self.default_window_time_bucket = (
+            None if window_time_bucket is None else float(window_time_bucket)
+        )
+        self.default_detector_length = (
+            None if detector_length is None else float(detector_length)
+        )
         self.event_prefetch_radius = max(0, int(event_prefetch_radius))
         self.trace_files = collect_run_files(trace_path)
         self.pointcloud_files = collect_run_files(pointcloud_dir(workspace))
@@ -176,6 +194,10 @@ class PointcloudService:
             },
         }
 
+    def validate_processing_configs(self) -> None:
+        for run in sorted(self.pointcloud_files):
+            self._processing_config(int(run))
+
     def get_event(self, *, run: int, event_id: int) -> dict[str, Any]:
         event_range = self._require_event_range(run, event_id)
         hits = self._require_event_hits(run, event_id)
@@ -190,6 +212,41 @@ class PointcloudService:
                 for row, projected in zip(hits, projected_hits, strict=True)
             ],
             "processing": self._processing_config(run),
+        }
+
+    def get_label_event(
+        self,
+        *,
+        run: int,
+        event_id: int,
+        ransac_config: RansacConfig,
+        merge_config: MergeConfig,
+    ) -> dict[str, Any]:
+        event_range = self._require_event_range(run, event_id)
+        hits = self._require_event_hits(run, event_id)
+        projected_hits = _project_hit_coordinates(hits)
+        merged_labels, merged_line_count = _merged_cluster_labels(
+            hits,
+            ransac_config=ransac_config,
+            merge_config=merge_config,
+        )
+        self._schedule_prefetch(run, event_id)
+        return {
+            "run": int(run),
+            "eventId": int(event_id),
+            "eventIdRange": {"min": int(event_range[0]), "max": int(event_range[1])},
+            "hits": [
+                _serialize_hit_row(row, projected=projected, merged_label=merged_label)
+                for row, projected, merged_label in zip(
+                    hits,
+                    projected_hits,
+                    merged_labels,
+                    strict=True,
+                )
+            ],
+            "processing": self._processing_config(run),
+            "mergedLineCount": int(merged_line_count),
+            "suggestedLabel": _pointcloud_bucket_from_count(merged_line_count),
         }
 
     def get_traces(
@@ -300,13 +357,51 @@ class PointcloudService:
             return cached
         attrs = self._pointcloud_reader(run).read_processing_attrs()
         config = {
-            "fftWindowScale": float(attrs.get("fft_window_scale", self.default_baseline_window_scale)),
-            "micromegasTimeBucket": float(attrs.get("micromegas_time_bucket", 10.0)),
-            "windowTimeBucket": float(attrs.get("window_time_bucket", 560.0)),
-            "detectorLength": float(attrs.get("detector_length", 1000.0)),
+            "fftWindowScale": self._resolve_processing_value(
+                run,
+                attrs,
+                attr_key="fft_window_scale",
+                fallback=self.default_baseline_window_scale,
+            ),
+            "micromegasTimeBucket": self._resolve_processing_value(
+                run,
+                attrs,
+                attr_key="micromegas_time_bucket",
+                fallback=self.default_micromegas_time_bucket,
+            ),
+            "windowTimeBucket": self._resolve_processing_value(
+                run,
+                attrs,
+                attr_key="window_time_bucket",
+                fallback=self.default_window_time_bucket,
+            ),
+            "detectorLength": self._resolve_processing_value(
+                run,
+                attrs,
+                attr_key="detector_length",
+                fallback=self.default_detector_length,
+            ),
         }
         self._processing_cache[run] = config
         return config
+
+    def _resolve_processing_value(
+        self,
+        run: int,
+        attrs: dict[str, object],
+        *,
+        attr_key: str,
+        fallback: float | None,
+    ) -> float:
+        value = attrs.get(attr_key)
+        if value is not None:
+            return float(value)
+        if fallback is not None:
+            return float(fallback)
+        raise ValueError(
+            f"pointcloud processing config is missing '{attr_key}' for run {run}; "
+            "set it in the pointcloud HDF5 attrs or in the WebUI config file"
+        )
 
     def _load_event_hits(self, key: EventKey) -> np.ndarray | None:
         run, event_id = key
@@ -316,7 +411,7 @@ class PointcloudService:
             _, hits = self._pointcloud_reader(run).read_event(event_id)
         except (KeyError, ValueError):
             return None
-        return np.asarray(hits, dtype=np.float64)
+        return self._filter_hits_by_z(run, np.asarray(hits, dtype=np.float64))
 
     def _require_event_hits(self, run: int, event_id: int) -> np.ndarray:
         key = (int(run), int(event_id))
@@ -328,6 +423,14 @@ class PointcloudService:
             raise LookupError(f"pointcloud event not found: {run}/{event_id}")
         self._prefetcher.store_current(key, hits)
         return hits
+
+    def _filter_hits_by_z(self, run: int, hits: np.ndarray) -> np.ndarray:
+        rows = np.asarray(hits, dtype=np.float64)
+        if rows.ndim != 2 or rows.shape[0] == 0:
+            return rows
+        detector_length = float(self._processing_config(run)["detectorLength"])
+        mask = np.isfinite(rows[:, 2]) & (rows[:, 2] >= 0.0) & (rows[:, 2] <= detector_length)
+        return rows[mask]
 
     def _event_window(self, run: int, event_id: int) -> list[EventKey]:
         event_range = self._event_ranges.get(run)
@@ -348,6 +451,7 @@ def _serialize_hit_row(
     row: np.ndarray,
     *,
     projected: tuple[float | None, float | None] = (None, None),
+    merged_label: int = -1,
 ) -> dict[str, Any]:
     return {
         "traceId": int(row[8]),
@@ -361,6 +465,7 @@ def _serialize_hit_row(
         "padId": int(row[5]),
         "timeBucket": float(row[6]),
         "scale": float(row[7]),
+        "mergedLabel": int(merged_label),
     }
 
 
@@ -389,3 +494,28 @@ def _project_hit_coordinates(hits: np.ndarray) -> list[tuple[float | None, float
         else (None, None)
         for values in projected
     ]
+
+
+def _merged_cluster_labels(
+    hits: np.ndarray,
+    *,
+    ransac_config: RansacConfig,
+    merge_config: MergeConfig,
+) -> tuple[list[int], int]:
+    rows = np.asarray(hits, dtype=np.float64)
+    if rows.ndim != 2 or rows.shape[0] == 0:
+        return [], 0
+    clusters, _ = extract_line_clusters(rows, ransac_config=ransac_config)
+    merged_clusters = merge_line_clusters(clusters, merge_config=merge_config)
+    labels = np.full(rows.shape[0], -1, dtype=np.int64)
+    for cluster_index, cluster in enumerate(merged_clusters):
+        labels[np.asarray(cluster.inlier_indices, dtype=np.int64)] = cluster_index
+    return labels.astype(int).tolist(), len(merged_clusters)
+
+
+def _pointcloud_bucket_from_count(count: int) -> str:
+    if count <= 0:
+        return "0"
+    if count >= 6:
+        return "6+"
+    return str(int(count))

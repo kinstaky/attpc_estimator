@@ -78,6 +78,53 @@ def write_sparse_hdf5_input(path) -> None:
         )
 
 
+def write_pointcloud_input(path) -> None:
+    with h5py.File(path, "w") as handle:
+        cloud = handle.create_group("cloud")
+        cloud.attrs["min_event"] = 1
+        cloud.attrs["max_event"] = 3
+        cloud.attrs["fft_window_scale"] = 20.0
+        cloud.attrs["micromegas_time_bucket"] = 10.0
+        cloud.attrs["window_time_bucket"] = 560.0
+        cloud.attrs["detector_length"] = 1000.0
+        cloud.create_dataset(
+            "cloud_1",
+            data=np.asarray(
+                [
+                    [0.0, 0.0, 0.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0],
+                    [1.0, 0.0, 0.1, 20.0, 30.0, 20.0, 22.0, 1.0, 1.0],
+                    [2.0, 0.1, 0.0, 30.0, 40.0, 30.0, 33.0, 1.0, 2.0],
+                    [3.0, 0.1, 0.2, 40.0, 50.0, 40.0, 44.0, 1.0, 3.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
+        cloud.create_dataset(
+            "cloud_2",
+            data=np.asarray(
+                [
+                    [5.0, 0.0, 0.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0],
+                    [6.0, 0.1, 0.0, 20.0, 30.0, 20.0, 22.0, 1.0, 1.0],
+                    [7.0, 0.2, 0.1, 30.0, 40.0, 30.0, 33.0, 1.0, 2.0],
+                    [8.0, 0.2, 0.2, 40.0, 50.0, 40.0, 44.0, 1.0, 3.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
+        cloud.create_dataset(
+            "cloud_3",
+            data=np.asarray(
+                [
+                    [10.0, 1.0, 0.0, 10.0, 20.0, 10.0, 11.0, 1.0, 0.0],
+                    [11.0, 1.1, 0.1, 20.0, 30.0, 20.0, 22.0, 1.0, 1.0],
+                    [12.0, 1.2, 0.1, 30.0, 40.0, 30.0, 33.0, 1.0, 2.0],
+                    [13.0, 1.3, 0.2, 40.0, 50.0, 40.0, 44.0, 1.0, 3.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
+
+
 def _trace_from_second_derivative(second_diff: list[float]) -> np.ndarray:
     values = np.asarray(second_diff, dtype=np.float32)
     trace = np.zeros(values.size + 2, dtype=np.float32)
@@ -348,6 +395,29 @@ def test_review_mode_supports_grouped_normal_filter(tmp_path) -> None:
     assert (still_last["eventId"], still_last["traceId"]) == (1, 1)
 
 
+def test_label_review_mode_relabels_labeled_traces(tmp_path) -> None:
+    trace_path = tmp_path / "run_0013.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    service.set_session(mode="label", run=13)
+    service.assign_label(event_id=1, trace_id=0, family="normal", label="0")
+    service.assign_label(event_id=1, trace_id=1, family="normal", label="2")
+
+    payload = service.set_session(mode="label_review", run=13, family="normal", label="0")
+
+    assert payload["session"]["mode"] == "label_review"
+    assert payload["trace"]["currentLabel"] == {"family": "normal", "label": "0"}
+
+    saved = service.assign_label(event_id=1, trace_id=0, family="normal", label="3")
+
+    assert saved["currentLabel"] == {"family": "normal", "label": "3"}
+    with pytest.raises(LookupError, match="no traces match"):
+        service.next_trace()
+
+
 def test_trace_payload_includes_transformed_trace(tmp_path) -> None:
     random.seed(11)
     trace_path = tmp_path / "run_0004.h5"
@@ -543,3 +613,119 @@ def test_delete_strange_label_allows_unused_labels(tmp_path) -> None:
     remaining = service.delete_strange_label("Noise")
 
     assert remaining == [{"id": 2, "name": "Burst", "shortcutKey": "b", "count": 0}]
+
+
+def test_pointcloud_label_session_navigates_and_saves_labels(tmp_path) -> None:
+    random.seed(7)
+    trace_path = tmp_path / "run_0007.h5"
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    write_hdf5_input(trace_path)
+    write_pointcloud_input(pointcloud_root / "run_0007.h5")
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    try:
+        session = service.set_session(mode="pointcloud_label", run=7)
+        first = session["event"]
+        assert session["session"]["mode"] == "pointcloud_label"
+        assert first["run"] == 7
+        assert "mergedLineCount" in first
+        assert "suggestedLabel" in first
+        assert first["currentLabel"] is None
+
+        saved = service.assign_pointcloud_label(
+            event_id=first["eventId"],
+            label="2",
+        )
+        assert any(item["bucket"] == "2" and item["count"] == 1 for item in saved["pointcloudSummary"])
+
+        second = service.next_pointcloud_label_event()
+        assert second["eventId"] != first["eventId"]
+        previous = service.previous_pointcloud_label_event()
+        assert previous["eventId"] == first["eventId"]
+        assert previous["currentLabel"] == "2"
+
+        bootstrap = service.bootstrap_state()
+        assert any(item["bucket"] == "2" and item["count"] == 1 for item in bootstrap["pointcloudSummary"])
+    finally:
+        service.close()
+
+
+def test_pointcloud_label_review_mode_relabels_labeled_events(tmp_path) -> None:
+    random.seed(7)
+    trace_path = tmp_path / "run_0014.h5"
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    write_hdf5_input(trace_path)
+    write_pointcloud_input(pointcloud_root / "run_0014.h5")
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    try:
+        service.set_session(mode="pointcloud_label", run=14)
+        first = service.current_pointcloud_label_event()
+        service.assign_pointcloud_label(event_id=first["eventId"], label="2")
+        second = service.next_pointcloud_label_event()
+        service.assign_pointcloud_label(event_id=second["eventId"], label="4")
+
+        review = service.set_session(mode="pointcloud_label_review", run=14, label="2")
+        assert review["session"]["mode"] == "pointcloud_label_review"
+        assert review["event"]["eventId"] == first["eventId"]
+        assert review["event"]["currentLabel"] == "2"
+
+        saved = service.assign_pointcloud_label(event_id=first["eventId"], label="5")
+        assert saved["currentLabel"] == "5"
+
+        with pytest.raises(LookupError, match="no labeled pointcloud events match"):
+            service.next_pointcloud_label_event()
+    finally:
+        service.close()
+
+
+def test_pointcloud_browse_supports_direct_and_labeled_sources(tmp_path) -> None:
+    trace_path = tmp_path / "run_0007.h5"
+    workspace = tmp_path / "workspace"
+    pointcloud_root = workspace / "pointcloud"
+    pointcloud_root.mkdir(parents=True)
+    write_hdf5_input(trace_path)
+    write_pointcloud_input(pointcloud_root / "run_0007.h5")
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    try:
+        direct = service.set_session(mode="pointcloud", run=7, source="event_id", event_id=2)
+        assert direct["session"] == {
+            "mode": "pointcloud",
+            "run": 7,
+            "source": "event_id",
+            "family": None,
+            "label": None,
+            "filterFile": None,
+            "eventId": 2,
+            "traceId": None,
+        }
+        assert direct["event"]["eventId"] == 2
+        assert service.next_pointcloud_event()["eventId"] == 3
+        assert service.previous_pointcloud_event()["eventId"] == 2
+
+        service.set_session(mode="pointcloud_label", run=7)
+        first_label_event = service.current_pointcloud_label_event()["eventId"]
+        service.assign_pointcloud_label(event_id=first_label_event, label="2")
+        second_label_event = service.next_pointcloud_label_event()["eventId"]
+        service.assign_pointcloud_label(event_id=second_label_event, label="4")
+
+        labeled = service.set_session(mode="pointcloud", run=7, source="label_set", label="2")
+        assert labeled["session"] == {
+            "mode": "pointcloud",
+            "run": 7,
+            "source": "label_set",
+            "family": None,
+            "label": "2",
+            "filterFile": None,
+            "eventId": first_label_event,
+            "traceId": None,
+        }
+        assert labeled["event"]["eventId"] == first_label_event
+        assert service.next_pointcloud_event()["eventId"] == first_label_event
+    finally:
+        service.close()

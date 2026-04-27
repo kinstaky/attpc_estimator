@@ -24,6 +24,25 @@ CACHE_RADIUS = 5
 logger = logging.getLogger("attpc_estimator.trace_source")
 
 
+def _serialize_ref(ref: TraceRef) -> dict[str, int]:
+    return {
+        "run": int(ref.run),
+        "eventId": int(ref.event_id),
+        "traceId": int(ref.trace_id),
+    }
+
+
+def _deserialize_ref(payload: object) -> TraceRef | None:
+    if not isinstance(payload, dict):
+        return None
+    run = payload.get("run")
+    event_id = payload.get("eventId")
+    trace_id = payload.get("traceId")
+    if not isinstance(run, int) or not isinstance(event_id, int) or not isinstance(trace_id, int):
+        return None
+    return TraceRef(run=run, event_id=event_id, trace_id=trace_id)
+
+
 class TraceSource:
     def __init__(
         self,
@@ -134,6 +153,12 @@ class TraceSource:
             return None
         return self.get_trace(current_ref)
 
+    def current_trace_or_raise(self) -> TraceRecord:
+        record = self.current_trace()
+        if record is None:
+            raise LookupError("no trace is selected")
+        return record
+
     def trace_count(self) -> int:
         return len(self._navigator.stack)
 
@@ -206,6 +231,28 @@ class TraceSource:
         self._prefetcher.close()
         self._loader.close()
         self.selector.close()
+
+    def snapshot_state(self) -> dict[str, object]:
+        return {
+            "stack": [_serialize_ref(ref) for ref in self._navigator.stack],
+            "index": int(self._navigator.index),
+        }
+
+    def restore_state(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        stack_payload = payload.get("stack")
+        index = payload.get("index")
+        if not isinstance(stack_payload, list) or not isinstance(index, int):
+            return
+        refs = [ref for item in stack_payload if (ref := _deserialize_ref(item)) is not None]
+        self._navigator.replace_stack(refs)
+        if not refs:
+            self._navigator.index = -1
+            return
+        self._navigator.index = min(max(index, -1), len(refs) - 1)
+        if self._navigator.index >= 0:
+            self._schedule_prefetch()
 
     def _wait_for_prefetch(self, timeout: float = 1.0) -> bool:
         return self._prefetcher.wait(timeout=timeout)

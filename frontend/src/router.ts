@@ -9,7 +9,17 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/label",
     name: "label",
+    redirect: { name: "label-trace" },
+  },
+  {
+    path: "/label/trace",
+    name: "label-trace",
     component: () => import("./views/LabelView.vue"),
+  },
+  {
+    path: "/label/pointcloud",
+    name: "label-pointcloud",
+    component: () => import("./views/PointcloudLabelView.vue"),
   },
   {
     path: "/histograms",
@@ -22,13 +32,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import("./views/MappingView.vue"),
   },
   {
-    path: "/review",
-    name: "review",
+    path: "/browse",
+    name: "browse",
+    redirect: { name: "browse-trace" },
+  },
+  {
+    path: "/browse/trace",
+    name: "browse-trace",
     component: () => import("./views/TraceReviewView.vue"),
   },
   {
-    path: "/pointcloud",
-    name: "pointcloud",
+    path: "/browse/pointcloud",
+    name: "browse-pointcloud",
     component: () => import("./views/PointcloudView.vue"),
   },
 ];

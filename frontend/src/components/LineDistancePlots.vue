@@ -79,7 +79,7 @@
                 v-model.number="distanceMin"
                 :min="distanceAxisBounds.min"
                 :max="distanceAxisBounds.max"
-                label="z=0 distance min (mm)"
+                label="Pair distance min (mm)"
                 type="number"
                 variant="outlined"
               />
@@ -89,7 +89,7 @@
                 v-model.number="distanceMax"
                 :min="distanceAxisBounds.min"
                 :max="distanceAxisBounds.max"
-                label="z=0 distance max (mm)"
+                label="Pair distance max (mm)"
                 type="number"
                 variant="outlined"
               />
@@ -114,19 +114,6 @@
       </v-card>
     </v-col>
 
-    <v-col cols="12" lg="6">
-      <v-card v-if="pointLineDistancePlot" class="result-card-vuetify" rounded="xl">
-        <v-card-title class="result-card-title">
-          <div>
-            <p class="page-kicker">Phase 2</p>
-            <h2>{{ pointLineDistancePlot.title }}</h2>
-          </div>
-        </v-card-title>
-        <v-card-text>
-          <div :ref="(element) => setPlotRoot('point_line_distance', element)" class="trace-plot result-plot"></div>
-        </v-card-text>
-      </v-card>
-    </v-col>
   </v-row>
 </template>
 
@@ -152,7 +139,6 @@ const plotMap = computed(() => new Map(props.plots.map((plot) => [plot.key, plot
 const lineCountPlot = computed(() => plotMap.value.get("line_count"));
 const labeledRatioPlot = computed(() => plotMap.value.get("labeled_ratio"));
 const jointPlot = computed(() => plotMap.value.get("joint"));
-const pointLineDistancePlot = computed(() => plotMap.value.get("point_line_distance"));
 const distanceTemplatePlot = computed(() => plotMap.value.get("distances1"));
 const angleTemplatePlot = computed(() => plotMap.value.get("distances2"));
 
@@ -272,7 +258,6 @@ const renderedPlots = computed(() => [
   projectedDistancePlot.value,
   projectedDotPlot.value,
   jointPlot.value,
-  pointLineDistancePlot.value,
 ].filter((plot): plot is HistogramPlot => Boolean(plot)));
 
 function setPlotRoot(key: string, element: unknown): void {
@@ -305,6 +290,147 @@ function transformHeatmapValues(values: number[][], scaleMode: "linear" | "log")
   }));
 }
 
+async function renderPlot(Plotly: Awaited<ReturnType<typeof loadPlotly>>, plot: HistogramPlot): Promise<void> {
+  const root = plotRoots.get(plot.key);
+  if (!root) {
+    return;
+  }
+  if (plot.render === "bar") {
+    const histogram = (plot.histogram || []) as number[];
+    const yValues = histogram.map((value) => {
+      const count = Number(value || 0);
+      if (props.scaleMode === "log" && count <= 0) {
+        return null;
+      }
+      return count;
+    });
+    await Plotly.react(
+      root,
+      [
+        {
+          type: "bar",
+          x: plot.binCenters || [],
+          y: yValues,
+          customdata: histogram,
+          marker: { color: "#174f40" },
+          hovertemplate: `${plot.binLabel || "Value"} %{x}<br>${plot.countLabel || "Count"} %{customdata}<extra></extra>`,
+        },
+      ],
+      {
+        ...baseLayout(),
+        title: { text: plot.title, x: 0.02, xanchor: "left" },
+        uirevision: plot.key,
+        xaxis: {
+          title: plot.binLabel || "Value",
+          zeroline: false,
+          gridcolor: "#e7dfcf",
+        },
+        yaxis: {
+          title: plot.countLabel || "Count",
+          type: props.scaleMode,
+          zeroline: false,
+          gridcolor: "#e7dfcf",
+        },
+        bargap: 0,
+      },
+      { displayModeBar: false, responsive: true },
+    );
+    return;
+  }
+  if (plot.render === "grouped_bar") {
+    await Plotly.react(
+      root,
+      (plot.series || []).map((series, index) => ({
+        type: "bar",
+        name: series.title,
+        x: plot.binCenters || [],
+        y: series.histogram.map((value) => {
+          const count = Number(value || 0);
+          if (props.scaleMode === "log" && count <= 0) {
+            return null;
+          }
+          return count;
+        }),
+        customdata: series.histogram,
+        hovertemplate: `${plot.binLabel || "Value"} %{x}<br>${plot.countLabel || "Count"} %{customdata}<extra>${series.title}</extra>`,
+        marker: { color: ["#174f40", "#b35900", "#4f5d75"][index % 3] },
+      })),
+      {
+        ...baseLayout(),
+        title: { text: plot.title, x: 0.02, xanchor: "left" },
+        uirevision: plot.key,
+        xaxis: {
+          title: plot.binLabel || "Value",
+          zeroline: false,
+          gridcolor: "#e7dfcf",
+        },
+        yaxis: {
+          title: plot.countLabel || "Count",
+          type: props.scaleMode,
+          zeroline: false,
+          gridcolor: "#e7dfcf",
+        },
+        barmode: "group",
+        bargap: 0.08,
+      },
+      { displayModeBar: false, responsive: true },
+    );
+    return;
+  }
+  const histogram = (plot.histogram || []) as number[][];
+  await Plotly.react(
+    root,
+    [
+      {
+        type: "heatmap",
+        z: transformHeatmapValues(histogram, props.scaleMode),
+        customdata: histogram,
+        x: plot.xBinCenters || [],
+        y: plot.yBinCenters || [],
+        colorscale: "YlGnBu",
+        hovertemplate: `${plot.xLabel || "X"} %{x}<br>${plot.yLabel || "Y"} %{y}<br>${plot.countLabel || "Count"} %{customdata}<extra></extra>`,
+        colorbar: {
+          title: props.scaleMode === "log" ? "log10(count + 1)" : (plot.countLabel || "Count"),
+        },
+      },
+    ],
+    {
+      ...baseLayout(),
+      title: { text: plot.title, x: 0.02, xanchor: "left" },
+      uirevision: plot.key,
+      xaxis: {
+        title: plot.xLabel || "X",
+        zeroline: false,
+        gridcolor: "#e7dfcf",
+      },
+      yaxis: {
+        title: plot.yLabel || "Y",
+        zeroline: false,
+        gridcolor: "#e7dfcf",
+      },
+    },
+    { displayModeBar: false, responsive: true },
+  );
+}
+
+async function renderProjectedDistancePlot(): Promise<void> {
+  const plot = projectedDistancePlot.value;
+  if (!plot) {
+    return;
+  }
+  const Plotly = await loadPlotly();
+  await renderPlot(Plotly, plot);
+}
+
+async function renderProjectedAnglePlot(): Promise<void> {
+  const plot = projectedDotPlot.value;
+  if (!plot) {
+    return;
+  }
+  const Plotly = await loadPlotly();
+  await renderPlot(Plotly, plot);
+}
+
 async function renderPlots(): Promise<void> {
   const Plotly = await loadPlotly();
   for (const plot of renderedPlots.value) {
@@ -312,119 +438,7 @@ async function renderPlots(): Promise<void> {
     if (!root) {
       continue;
     }
-    if (plot.render === "bar") {
-      const histogram = (plot.histogram || []) as number[];
-      const yValues = histogram.map((value) => {
-        const count = Number(value || 0);
-        if (props.scaleMode === "log" && count <= 0) {
-          return null;
-        }
-        return count;
-      });
-      await Plotly.react(
-        root,
-        [
-          {
-            type: "bar",
-            x: plot.binCenters || [],
-            y: yValues,
-            customdata: histogram,
-            marker: { color: "#174f40" },
-            hovertemplate: `${plot.binLabel || "Value"} %{x}<br>${plot.countLabel || "Count"} %{customdata}<extra></extra>`,
-          },
-        ],
-        {
-          ...baseLayout(),
-          title: { text: plot.title, x: 0.02, xanchor: "left" },
-          xaxis: {
-            title: plot.binLabel || "Value",
-            zeroline: false,
-            gridcolor: "#e7dfcf",
-          },
-          yaxis: {
-            title: plot.countLabel || "Count",
-            type: props.scaleMode,
-            zeroline: false,
-            gridcolor: "#e7dfcf",
-          },
-          bargap: 0,
-        },
-        { displayModeBar: false, responsive: true },
-      );
-      continue;
-    }
-    if (plot.render === "grouped_bar") {
-      await Plotly.react(
-        root,
-        (plot.series || []).map((series, index) => ({
-          type: "bar",
-          name: series.title,
-          x: plot.binCenters || [],
-          y: series.histogram.map((value) => {
-            const count = Number(value || 0);
-            if (props.scaleMode === "log" && count <= 0) {
-              return null;
-            }
-            return count;
-          }),
-          customdata: series.histogram,
-          hovertemplate: `${plot.binLabel || "Value"} %{x}<br>${plot.countLabel || "Count"} %{customdata}<extra>${series.title}</extra>`,
-          marker: { color: ["#174f40", "#b35900", "#4f5d75"][index % 3] },
-        })),
-        {
-          ...baseLayout(),
-          title: { text: plot.title, x: 0.02, xanchor: "left" },
-          xaxis: {
-            title: plot.binLabel || "Value",
-            zeroline: false,
-            gridcolor: "#e7dfcf",
-          },
-          yaxis: {
-            title: plot.countLabel || "Count",
-            type: props.scaleMode,
-            zeroline: false,
-            gridcolor: "#e7dfcf",
-          },
-          barmode: "group",
-          bargap: 0.08,
-        },
-        { displayModeBar: false, responsive: true },
-      );
-      continue;
-    }
-    const histogram = (plot.histogram || []) as number[][];
-    await Plotly.react(
-      root,
-      [
-        {
-          type: "heatmap",
-          z: transformHeatmapValues(histogram, props.scaleMode),
-          customdata: histogram,
-          x: plot.xBinCenters || [],
-          y: plot.yBinCenters || [],
-          colorscale: "YlGnBu",
-          hovertemplate: `${plot.xLabel || "X"} %{x}<br>${plot.yLabel || "Y"} %{y}<br>${plot.countLabel || "Count"} %{customdata}<extra></extra>`,
-          colorbar: {
-            title: props.scaleMode === "log" ? "log10(count + 1)" : (plot.countLabel || "Count"),
-          },
-        },
-      ],
-      {
-        ...baseLayout(),
-        title: { text: plot.title, x: 0.02, xanchor: "left" },
-        xaxis: {
-          title: plot.xLabel || "X",
-          zeroline: false,
-          gridcolor: "#e7dfcf",
-        },
-        yaxis: {
-          title: plot.yLabel || "Y",
-          zeroline: false,
-          gridcolor: "#e7dfcf",
-        },
-      },
-      { displayModeBar: false, responsive: true },
-    );
+    await renderPlot(Plotly, plot);
   }
 }
 
@@ -440,14 +454,30 @@ watch(
     angleMax.value = 180;
     distanceMin.value = Math.max(0, bounds.min);
     distanceMax.value = Math.min(600, bounds.max);
+    void renderPlots();
   },
   { deep: true, immediate: true },
 );
 
 watch(
-  () => [renderedPlots.value, props.scaleMode],
+  () => props.scaleMode,
   () => {
     void renderPlots();
+  },
+);
+
+watch(
+  () => projectedDistancePlot.value,
+  () => {
+    void renderProjectedDistancePlot();
+  },
+  { deep: true },
+);
+
+watch(
+  () => projectedDotPlot.value,
+  () => {
+    void renderProjectedAnglePlot();
   },
   { deep: true },
 );

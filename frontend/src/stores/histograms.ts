@@ -3,6 +3,7 @@ import { computed, reactive } from "vue";
 import { createHistogramJob, getHistogram, histogramJobSocketUrl } from "../api";
 import { useShellStore } from "./shell";
 import type {
+  HistogramsUiState,
   HistogramJobMessage,
   HistogramJobProgress,
   HistogramMetric,
@@ -61,13 +62,14 @@ const state = reactive<HistogramState>({
 const labeledSeriesOrder = reactive<Record<string, string[]>>({});
 let activeSocket: WebSocket | null = null;
 let loadSequence = 0;
+let shouldRestoreHistogram = false;
 
 const PHASE_METRICS: Record<HistogramPhase, HistogramMetric[]> = {
   phase1: ["amplitude", "baseline", "bitflip", "cdf", "saturation"],
-  phase2: ["line_distance", "coplanar"],
+  phase2: ["line_distance", "line_property", "coplanar"],
 };
 
-const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "coplanar"]);
+const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "line_property", "coplanar"]);
 
 function clearTransientUi(): void {
   state.error = "";
@@ -127,7 +129,7 @@ function currentVariant(): HistogramVariant | "" {
 }
 
 function metricPhase(metric: HistogramMetric): HistogramPhase {
-  return metric === "line_distance" || metric === "coplanar" ? "phase2" : "phase1";
+  return metric === "line_distance" || metric === "line_property" || metric === "coplanar" ? "phase2" : "phase1";
 }
 
 function getAvailability() {
@@ -297,7 +299,9 @@ async function loadFilteredHistogram(loadId: number): Promise<HistogramPayload> 
 
 async function init(): Promise<void> {
   ensureInitialized();
-  await loadHistogram();
+  const restoreFiltered = shouldRestoreHistogram && state.selectedMode === "filtered";
+  shouldRestoreHistogram = false;
+  await loadHistogram(restoreFiltered);
 }
 
 async function plotFilteredHistogram(): Promise<void> {
@@ -469,5 +473,50 @@ export function useHistogramStore() {
     setCdfRenderMode,
     setCdfProjectionBin,
     reorderCurrentSeries,
+    applyUiState,
+    serializeUiState,
+  };
+}
+
+function applyUiState(payload: HistogramsUiState | null | undefined): void {
+  if (!payload) {
+    return;
+  }
+  shouldRestoreHistogram = true;
+  state.selectedRun = payload.selectedRun;
+  state.selectedPhase = payload.selectedPhase;
+  state.selectedMetric = payload.selectedMetric;
+  state.selectedMode = payload.selectedMode;
+  state.selectedBitflipVariant = payload.selectedBitflipVariant;
+  state.selectedSaturationVariant = payload.selectedSaturationVariant;
+  state.selectedHistogramFilter = payload.selectedHistogramFilter;
+  state.selectedHistogramVeto = payload.selectedHistogramVeto;
+  state.cdfScaleMode = payload.cdfScaleMode;
+  state.amplitudeScaleMode = payload.amplitudeScaleMode;
+  state.cdfRenderMode = payload.cdfRenderMode;
+  state.cdfProjectionBin = payload.cdfProjectionBin;
+  for (const [key, values] of Object.entries(payload.labeledSeriesOrder || {})) {
+    labeledSeriesOrder[key] = [...values];
+  }
+  ensureInitialized();
+}
+
+function serializeUiState(): HistogramsUiState {
+  return {
+    selectedRun: state.selectedRun,
+    selectedPhase: state.selectedPhase,
+    selectedMetric: state.selectedMetric,
+    selectedMode: state.selectedMode,
+    selectedBitflipVariant: state.selectedBitflipVariant,
+    selectedSaturationVariant: state.selectedSaturationVariant,
+    selectedHistogramFilter: state.selectedHistogramFilter,
+    selectedHistogramVeto: state.selectedHistogramVeto,
+    cdfScaleMode: state.cdfScaleMode,
+    amplitudeScaleMode: state.amplitudeScaleMode,
+    cdfRenderMode: state.cdfRenderMode,
+    cdfProjectionBin: state.cdfProjectionBin,
+    labeledSeriesOrder: Object.fromEntries(
+      Object.entries(labeledSeriesOrder).map(([key, values]) => [key, [...values]]),
+    ),
   };
 }

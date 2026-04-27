@@ -141,6 +141,27 @@ body {
   transform: translateY(-50%) translateX(0);
 }
 
+.main-nav-group {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.main-nav-item--static {
+  cursor: default;
+}
+
+.main-nav-submenu {
+  display: none;
+  margin-left: 1.05rem;
+  padding-left: 0.65rem;
+  border-left: 1px solid rgba(32, 88, 69, 0.18);
+}
+
+.main-nav-submenu--visible {
+  display: grid;
+  gap: 0.2rem;
+}
+
 .main-nav-footer {
   position: relative;
   min-height: 4rem;
@@ -297,6 +318,47 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr) minmax(14rem, 17rem);
+}
+
+.pointcloud-label-route {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+}
+
+.pointcloud-label-suggested {
+  min-width: 7.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(32, 88, 69, 0.18);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(243, 247, 238, 0.9), rgba(255, 252, 246, 0.96));
+  display: grid;
+  gap: 0.2rem;
+}
+
+.pointcloud-label-suggested strong,
+.pointcloud-label-suggested-count {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 0.95;
+  color: #173d31;
+}
+
+.pointcloud-panel--empty {
+  display: grid;
+  place-items: center;
+  border-style: dashed;
+}
+
+.pointcloud-panel-empty-copy {
+  display: grid;
+  gap: 0.3rem;
+  text-align: center;
+  color: rgba(36, 31, 23, 0.72);
+}
+
+.pointcloud-panel-empty-copy strong {
+  font-family: "Fraunces", Georgia, serif;
 }
 
 .label-workbench {
@@ -672,6 +734,16 @@ body {
   margin-top: 1rem;
 }
 
+.main-nav-item--child {
+  min-height: 2.6rem;
+  padding-left: 0.35rem;
+  background: rgba(32, 88, 69, 0.04);
+}
+
+.main-nav-item--child .v-list-item__prepend {
+  opacity: 0.84;
+}
+
 .pointcloud-grid--single {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -727,6 +799,10 @@ body {
     grid-template-rows: auto auto;
   }
 
+  .pointcloud-label-route {
+    grid-template-columns: minmax(13rem, 15rem) minmax(0, 1fr);
+  }
+
   .summary-panel--left {
     grid-column: 1;
     grid-row: 1 / span 2;
@@ -756,6 +832,10 @@ body {
   }
 
   .label-route {
+    grid-template-columns: 1fr;
+  }
+
+  .pointcloud-label-route {
     grid-template-columns: 1fr;
   }
 

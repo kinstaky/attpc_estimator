@@ -39,7 +39,11 @@ class DummyMergedService:
         self.closed = True
 
     def bootstrap_state(self) -> dict:
-        return {"appType": "merged", "session": {"mode": "label", "run": 8}}
+        return {
+            "appType": "merged",
+            "session": {"mode": "label", "run": 8},
+            "uiState": {"route": "/label"},
+        }
 
     def set_session(
         self,
@@ -69,8 +73,29 @@ class DummyMergedService:
     def next_trace(self) -> dict:
         return {"run": 8, "eventId": 1, "traceId": 2}
 
+    def current_trace(self) -> dict:
+        return {"run": 8, "eventId": 4, "traceId": 5}
+
+    def current_pointcloud_label_event(self) -> dict:
+        return {"run": 8, "eventId": 4, "currentLabel": None}
+
+    def current_pointcloud_event(self) -> dict:
+        return {"run": 8, "eventId": 7}
+
     def previous_trace(self) -> dict:
         raise LookupError("no previous trace")
+
+    def next_pointcloud_label_event(self) -> dict:
+        return {"run": 8, "eventId": 5, "currentLabel": "2"}
+
+    def next_pointcloud_event(self) -> dict:
+        return {"run": 8, "eventId": 8}
+
+    def previous_pointcloud_label_event(self) -> dict:
+        raise LookupError("no previous pointcloud event")
+
+    def previous_pointcloud_event(self) -> dict:
+        raise LookupError("no previous browse pointcloud event")
 
     def next_event(self) -> dict:
         return {"run": 8, "eventId": 2, "traceId": 0}
@@ -83,6 +108,12 @@ class DummyMergedService:
             "eventId": event_id,
             "traceId": trace_id,
             "family": family,
+            "label": label,
+        }
+
+    def assign_pointcloud_label(self, *, event_id: int, label: str) -> dict:
+        return {
+            "eventId": event_id,
             "label": label,
         }
 
@@ -114,6 +145,9 @@ class DummyMergedService:
         }
         if variant is not None:
             payload["variant"] = variant
+        return payload
+
+    def update_ui_state(self, payload: dict) -> dict:
         return payload
 
     def create_histogram_job(
@@ -152,6 +186,7 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         assert client.get("/api/bootstrap").json() == {
             "appType": "merged",
             "session": {"mode": "label", "run": 8},
+            "uiState": {"route": "/label"},
         }
         assert client.get("/api/mapping/pads").json() == [{"pad": 1, "cx": 1.0, "cy": 2.0}]
 
@@ -193,6 +228,37 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         assert assign.status_code == 200
         assert assign.json() == {"eventId": 1, "traceId": 2, "family": "normal", "label": "0"}
 
+        assert client.get("/api/pointcloud-label/current").json() == {
+            "run": 8,
+            "eventId": 4,
+            "currentLabel": None,
+        }
+        assert client.get("/api/pointcloud/current").json() == {
+            "run": 8,
+            "eventId": 7,
+        }
+        assert client.post("/api/pointcloud/next").json() == {
+            "run": 8,
+            "eventId": 8,
+        }
+        previous_browse_pointcloud = client.post("/api/pointcloud/previous")
+        assert previous_browse_pointcloud.status_code == 404
+        assert previous_browse_pointcloud.json() == {"detail": "no previous browse pointcloud event"}
+        assert client.post("/api/pointcloud-label/next").json() == {
+            "run": 8,
+            "eventId": 5,
+            "currentLabel": "2",
+        }
+        previous_pointcloud = client.post("/api/pointcloud-label/previous")
+        assert previous_pointcloud.status_code == 404
+        assert previous_pointcloud.json() == {"detail": "no previous pointcloud event"}
+        pointcloud_assign = client.post(
+            "/api/pointcloud-label/assign",
+            json={"eventId": 5, "label": "2"},
+        )
+        assert pointcloud_assign.status_code == 200
+        assert pointcloud_assign.json() == {"eventId": 5, "label": "2"}
+
         histogram = client.get(
             "/api/histograms",
             params={"metric": "bitflip", "variant": "value", "mode": "all", "run": 8},
@@ -221,6 +287,13 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         assert histogram_job.status_code == 200
         assert histogram_job.json() == {"jobId": "job-1"}
 
+        ui_state = client.post(
+            "/api/ui-state",
+            json={"route": "/browse/trace", "shell": {"selectedRun": 8}},
+        )
+        assert ui_state.status_code == 200
+        assert ui_state.json() == {"uiState": {"route": "/browse/trace", "shell": {"selectedRun": 8}}}
+
         with client.websocket_connect("/api/histograms/jobs/job-1") as websocket:
             assert websocket.receive_json() == {
                 "type": "progress",
@@ -247,3 +320,4 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         missing_api = client.get("/api/missing")
         assert missing_api.status_code == 404
         assert missing_api.text == "Not Found"
+        assert client.get("/api/traces/current").json() == {"run": 8, "eventId": 4, "traceId": 5}

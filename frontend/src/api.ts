@@ -7,7 +7,9 @@ import type {
   LabelAssignResponse,
   MappingPad,
   PointcloudEventPayload,
+  PointcloudLabelEventPayload,
   PointcloudTracePayload,
+  UiStatePayload,
   SessionPayload,
   SessionResponse,
   StrangeLabel,
@@ -74,6 +76,10 @@ export function setSession(payload: SessionPayload): Promise<SessionResponse> {
   });
 }
 
+export function getCurrentTrace(): Promise<TracePayload> {
+  return request<TracePayload>("/api/traces/current");
+}
+
 export function getStrangeLabels(): Promise<{ strangeLabels: StrangeLabel[] }> {
   return request<{ strangeLabels: StrangeLabel[] }>("/api/labels/strange");
 }
@@ -92,6 +98,51 @@ export function nextEvent(): Promise<TracePayload> {
 
 export function setLabelSession(run: number): Promise<SessionResponse> {
   return setSession({ mode: "label", run });
+}
+
+export function setLabelReviewRelabelSession(
+  run: number,
+  family: "normal" | "strange",
+  label: string | null = null,
+): Promise<SessionResponse> {
+  return setSession({
+    mode: "label_review",
+    run,
+    source: "label_set",
+    family,
+    label,
+  });
+}
+
+export function setPointcloudLabelSession(run: number): Promise<SessionResponse> {
+  return setSession({ mode: "pointcloud_label", run });
+}
+
+export function setPointcloudLabelReviewSession(
+  run: number,
+  label: string | null = null,
+): Promise<SessionResponse> {
+  return setSession({
+    mode: "pointcloud_label_review",
+    run,
+    source: "label_set",
+    label,
+  });
+}
+
+export function setPointcloudBrowseSession(
+  run: number,
+  source: "event_id" | "label_set",
+  eventId: number | null = null,
+  label: string | null = null,
+): Promise<SessionResponse> {
+  return setSession({
+    mode: "pointcloud",
+    run,
+    source,
+    eventId,
+    label,
+  });
 }
 
 export function setLabelReviewSession(
@@ -239,6 +290,22 @@ export function getPointcloudEvent(
   return request<PointcloudEventPayload>(`/api/pointcloud/event?${params.toString()}`);
 }
 
+export function getCurrentPointcloudEvent(): Promise<PointcloudEventPayload> {
+  return request<PointcloudEventPayload>("/api/pointcloud/current");
+}
+
+export function nextPointcloudEvent(): Promise<PointcloudEventPayload> {
+  return request<PointcloudEventPayload>("/api/pointcloud/next", {
+    method: "POST",
+  });
+}
+
+export function previousPointcloudEvent(): Promise<PointcloudEventPayload> {
+  return request<PointcloudEventPayload>("/api/pointcloud/previous", {
+    method: "POST",
+  });
+}
+
 export function getPointcloudTraces(
   run: number,
   eventId: number,
@@ -251,5 +318,41 @@ export function getPointcloudTraces(
       eventId,
       traceIds,
     }),
+  });
+}
+
+export function getCurrentPointcloudLabelEvent(): Promise<PointcloudLabelEventPayload> {
+  return request<PointcloudLabelEventPayload>("/api/pointcloud-label/current");
+}
+
+export function nextPointcloudLabelEvent(): Promise<PointcloudLabelEventPayload> {
+  return request<PointcloudLabelEventPayload>("/api/pointcloud-label/next", {
+    method: "POST",
+  });
+}
+
+export function previousPointcloudLabelEvent(): Promise<PointcloudLabelEventPayload> {
+  return request<PointcloudLabelEventPayload>("/api/pointcloud-label/previous", {
+    method: "POST",
+  });
+}
+
+export function savePointcloudLabel(
+  eventId: number,
+  label: string,
+): Promise<{ pointcloudSummary: Array<{ bucket: string; title: string; count: number }>; currentLabel: string }> {
+  return request<{ pointcloudSummary: Array<{ bucket: string; title: string; count: number }>; currentLabel: string }>(
+    "/api/pointcloud-label/assign",
+    {
+      method: "POST",
+      body: JSON.stringify({ eventId, label }),
+    },
+  );
+}
+
+export function updateUiState(payload: UiStatePayload): Promise<{ uiState: UiStatePayload }> {
+  return request<{ uiState: UiStatePayload }>("/api/ui-state", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }

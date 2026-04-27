@@ -120,6 +120,21 @@ class DirectTraceSource:
             raise LookupError("no direct trace is selected")
         return record
 
+    def snapshot_state(self) -> dict[str, int | None]:
+        return {
+            "eventId": self._current_event_id,
+            "traceId": self._current_trace_id,
+        }
+
+    def restore_state(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        event_id = payload.get("eventId")
+        trace_id = payload.get("traceId")
+        if not isinstance(event_id, int) or not isinstance(trace_id, int):
+            return
+        self.set_position(event_id=event_id, trace_id=trace_id)
+
     def _require_current_position(self) -> None:
         if self._current_event_id is None or self._current_trace_id is None:
             raise LookupError("no direct trace is selected")

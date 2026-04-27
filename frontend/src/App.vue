@@ -30,14 +30,21 @@
   </v-app>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted } from "vue";
 import MainNavRail from "./components/MainNavRail.vue";
 import { useShellStore } from "./stores/shell";
+import { hydrateUiState, startUiStatePersistence } from "./stores/ui_state";
 
 const { state, init } = useShellStore();
 
 onMounted(() => {
-  void init();
+  void (async () => {
+    await init();
+    if (state.bootstrap?.uiState) {
+      await hydrateUiState(state.bootstrap.uiState);
+    }
+    startUiStatePersistence();
+  })();
 });
 </script>

@@ -10,16 +10,23 @@ import { loadPlotly } from "../lib/plotly";
 const HALF_EDGE = 4.5;
 const HEIGHT = HALF_EDGE * (3 ** 0.5);
 const PAD_GAP_SCALE = 0.92;
-const DEFAULT_3D_RANGES = {
-  x: [-300, 300],
-  y: [0, 1000],
-  z: [-300, 300],
-};
 const DEFAULT_3D_CAMERA = {
   eye: { x: 1.45, y: 1.15, z: 0.58 },
   up: { x: 0, y: 0, z: 1 },
   center: { x: 0, y: 0, z: 0 },
 };
+const NOTEBOOK_LABEL_COLORS = [
+  "#1f77b4",
+  "#ff7f0e",
+  "#2ca02c",
+  "#d62728",
+  "#9467bd",
+  "#8c564b",
+  "#e377c2",
+  "#7f7f7f",
+  "#bcbd22",
+  "#17becf",
+];
 
 const props = defineProps({
   plotType: { type: String, required: true },
@@ -55,7 +62,7 @@ function isProjectedTwoDimensionalPlot() {
 }
 
 function isThreeDimensionalPlot() {
-  return props.plotType === "hits-3d-amplitude";
+  return props.plotType === "hits-3d-amplitude" || props.plotType === "hits-3d-label";
 }
 
 function selectedTraceIdSet() {
@@ -82,9 +89,6 @@ function config() {
 }
 
 function threeDimensionalAspectRatio() {
-  if (props.layoutMode === "1x2") {
-    return { x: 1, y: 1, z: 1 };
-  }
   return { x: 1, y: 2, z: 1 };
 }
 
@@ -169,10 +173,10 @@ function colorFromScale(value, min, max) {
   }
 
   const stops = [
-    [48, 18, 59],
-    [50, 104, 168],
-    [38, 188, 225],
-    [127, 225, 106],
+    [68, 1, 84],
+    [59, 82, 139],
+    [33, 145, 140],
+    [94, 201, 98],
     [253, 231, 37],
   ];
 
@@ -247,7 +251,7 @@ function createPadColorTrace(pads, colorTitle) {
       size: 0.1,
       opacity: 0,
       color: pads.map((pad) => pad.color),
-      colorscale: "Turbo",
+      colorscale: "Viridis",
       colorbar: { title: colorTitle },
     },
     hoverinfo: "skip",
@@ -266,7 +270,7 @@ function createPadInteractionTrace(pads, colorTitle) {
       size: pads.map((pad) => Math.max(12, pad.size * 14)),
       opacity: 0.001,
       color: pads.map((pad) => pad.color),
-      colorscale: "Turbo",
+      colorscale: "Viridis",
       showscale: false,
     },
     hovertemplate: "pad %{customdata.padId}<br>x %{x:.2f}<br>y %{y:.2f}<br>value %{marker.color:.2f}<extra></extra>",
@@ -325,7 +329,7 @@ async function renderHits3d() {
         marker: {
           size: 2,
           color: props.hits.map((hit) => Number(hit.amplitude)),
-          colorscale: "Turbo",
+          colorscale: "Viridis",
           line: {
             color: "#111111",
             width: props.hits.map((hit) => (selected.has(Number(hit.traceId)) ? 4 : 0)),
@@ -343,26 +347,119 @@ async function renderHits3d() {
           title: { text: "x" },
           backgroundcolor: "#fffdf8",
           gridcolor: "#e7dfcf",
-          range: [DEFAULT_3D_RANGES.x[1], DEFAULT_3D_RANGES.x[0]],
-          autorange: false,
+          autorange: "reversed",
         },
         yaxis: {
           title: { text: "z" },
           backgroundcolor: "#fffdf8",
           gridcolor: "#e7dfcf",
-          range: DEFAULT_3D_RANGES.y,
-          autorange: false,
+          autorange: true,
         },
         zaxis: {
           title: { text: "y" },
           backgroundcolor: "#fffdf8",
           gridcolor: "#e7dfcf",
-          range: DEFAULT_3D_RANGES.z,
-          autorange: false,
+          autorange: true,
         },
         aspectmode: "manual",
         aspectratio: threeDimensionalAspectRatio(),
         camera: props.camera || DEFAULT_3D_CAMERA,
+      },
+    },
+    config(),
+  );
+}
+
+async function renderHits3dLabel() {
+  const Plotly = await loadPlotly();
+  const unlabeledHits = (props.hits || []).filter((hit) => Number(hit.mergedLabel) < 0);
+  const labelGroups = new Map();
+  for (const hit of props.hits || []) {
+    const mergedLabel = Number(hit.mergedLabel);
+    if (mergedLabel < 0) {
+      continue;
+    }
+    const group = labelGroups.get(mergedLabel) || [];
+    group.push(hit);
+    labelGroups.set(mergedLabel, group);
+  }
+  const traces = [];
+
+  for (const [mergedLabel, hits] of [...labelGroups.entries()].sort((left, right) => left[0] - right[0])) {
+    traces.push({
+      type: "scatter3d",
+      mode: "markers",
+      x: hits.map((hit) => Number(hit.x)),
+      y: hits.map((hit) => Number(hit.z)),
+      z: hits.map((hit) => Number(hit.y)),
+      customdata: hits.map((hit) => ({
+        traceId: Number(hit.traceId),
+        mergedLabel,
+      })),
+      marker: {
+        size: 2,
+        color: NOTEBOOK_LABEL_COLORS[mergedLabel % NOTEBOOK_LABEL_COLORS.length],
+      },
+      hovertemplate: "trace %{customdata.traceId}<br>label %{customdata.mergedLabel}<extra></extra>",
+      name: `Cluster ${mergedLabel}`,
+      showlegend: true,
+    });
+  }
+
+  if (unlabeledHits.length) {
+    traces.push({
+      type: "scatter3d",
+      mode: "markers",
+      x: unlabeledHits.map((hit) => Number(hit.x)),
+      y: unlabeledHits.map((hit) => Number(hit.z)),
+      z: unlabeledHits.map((hit) => Number(hit.y)),
+      customdata: unlabeledHits.map((hit) => ({
+        traceId: Number(hit.traceId),
+      })),
+      marker: {
+        size: 2,
+        color: "#111111",
+      },
+      hovertemplate: "trace %{customdata.traceId}<br>unlabeled cluster<extra></extra>",
+      name: "Noise",
+      showlegend: true,
+    });
+  }
+
+  await Plotly.react(
+    root.value,
+    traces,
+    {
+      ...baseLayout(),
+      title: { text: "3D xyz · label", x: 0.02, xanchor: "left" },
+      scene: {
+        xaxis: {
+          title: { text: "x" },
+          backgroundcolor: "#fffdf8",
+          gridcolor: "#e7dfcf",
+          autorange: "reversed",
+        },
+        yaxis: {
+          title: { text: "z" },
+          backgroundcolor: "#fffdf8",
+          gridcolor: "#e7dfcf",
+          autorange: true,
+        },
+        zaxis: {
+          title: { text: "y" },
+          backgroundcolor: "#fffdf8",
+          gridcolor: "#e7dfcf",
+          autorange: true,
+        },
+        aspectmode: "manual",
+        aspectratio: threeDimensionalAspectRatio(),
+        camera: props.camera || DEFAULT_3D_CAMERA,
+      },
+      legend: {
+        orientation: "h",
+        x: 1,
+        xanchor: "right",
+        y: 1.08,
       },
     },
     config(),
@@ -388,7 +485,7 @@ async function renderHits2d(metricKey, title, colorTitle) {
         marker: {
           size: 8,
           color: props.hits.map((hit) => Number(hit[metricKey])),
-          colorscale: "Turbo",
+          colorscale: "Viridis",
           colorbar: { title: colorTitle },
           line: {
             color: "#111111",
@@ -449,7 +546,7 @@ async function renderProjectedHits2d() {
         marker: {
           size: 8,
           color: projectedHits.map((hit) => Number(hit.amplitude)),
-          colorscale: "Turbo",
+          colorscale: "Viridis",
           colorbar: { title: "Q" },
           line: {
             color: "#111111",
@@ -590,6 +687,8 @@ async function renderPlot() {
   }
   if (props.plotType === "hits-3d-amplitude") {
     await renderHits3d();
+  } else if (props.plotType === "hits-3d-label") {
+    await renderHits3dLabel();
   } else if (props.plotType === "hits-2d-z") {
     await renderHits2d("z", "2D xy · z", "z");
   } else if (props.plotType === "hits-2d-amplitude") {

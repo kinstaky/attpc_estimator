@@ -215,7 +215,7 @@ function formatPercentage(value) {
 
 function openReview(family, label) {
   router.push({
-    name: "review",
+    name: "browse-trace",
     query: {
       source: "label_set",
       run: shell.state.selectedRun ?? undefined,

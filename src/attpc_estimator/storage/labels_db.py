@@ -7,6 +7,8 @@ from typing import Any
 
 from ..model.label import NORMAL_BUCKETS, StoredLabel
 
+POINTCLOUD_LABEL_BUCKETS = ("0", "1", "2", "3", "4", "5", "6+")
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -45,6 +47,16 @@ class LabelRepository:
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               UNIQUE(run, event_id, trace_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS pointcloud_labels (
+              id INTEGER PRIMARY KEY,
+              run INTEGER NOT NULL,
+              event_id INTEGER NOT NULL,
+              label TEXT NOT NULL CHECK(label IN ('0', '1', '2', '3', '4', '5', '6+')),
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(run, event_id)
             );
             """
         )
@@ -87,6 +99,96 @@ class LabelRepository:
             )
             for row in rows
         ]
+
+    def list_labeled_pointcloud_event_ids(self, run: int) -> set[int]:
+        rows = self.connection.execute(
+            """
+            SELECT event_id
+            FROM pointcloud_labels
+            WHERE run = ?
+            """,
+            (run,),
+        ).fetchall()
+        return {int(row["event_id"]) for row in rows}
+
+    def list_labeled_pointcloud_events(
+        self,
+        run: int,
+        *,
+        label: str | None = None,
+    ) -> list[tuple[int, str]]:
+        query = """
+            SELECT event_id, label
+            FROM pointcloud_labels
+            WHERE run = ?
+        """
+        params: list[Any] = [int(run)]
+        if label is not None:
+            query += " AND label = ?"
+            params.append(str(label))
+        query += " ORDER BY event_id"
+        rows = self.connection.execute(query, tuple(params)).fetchall()
+        return [(int(row["event_id"]), str(row["label"])) for row in rows]
+
+    def get_pointcloud_label(self, run: int, event_id: int) -> str | None:
+        row = self.connection.execute(
+            """
+            SELECT label
+            FROM pointcloud_labels
+            WHERE run = ? AND event_id = ?
+            """,
+            (run, event_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["label"])
+
+    def save_pointcloud_label(self, run: int, event_id: int, label: str) -> None:
+        if label not in POINTCLOUD_LABEL_BUCKETS:
+            raise ValueError(f"invalid pointcloud label bucket: {label}")
+        row = self.connection.execute(
+            """
+            SELECT created_at
+            FROM pointcloud_labels
+            WHERE run = ? AND event_id = ?
+            """,
+            (run, event_id),
+        ).fetchone()
+        now = utc_now()
+        if row is None:
+            self.connection.execute(
+                """
+                INSERT INTO pointcloud_labels(
+                    run, event_id, label, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?)
+                """,
+                (run, event_id, label, now, now),
+            )
+        else:
+            self.connection.execute(
+                """
+                UPDATE pointcloud_labels
+                SET label = ?, updated_at = ?
+                WHERE run = ? AND event_id = ?
+                """,
+                (label, now, run, event_id),
+            )
+        self.connection.commit()
+
+    def get_pointcloud_counts(self) -> dict[str, int]:
+        counts = {bucket: 0 for bucket in POINTCLOUD_LABEL_BUCKETS}
+        rows = self.connection.execute(
+            """
+            SELECT label, COUNT(*) AS count
+            FROM pointcloud_labels
+            GROUP BY label
+            """
+        ).fetchall()
+        for row in rows:
+            bucket = str(row["label"])
+            if bucket in counts:
+                counts[bucket] = int(row["count"])
+        return counts
 
     def create_strange_label(self, name: str, shortcut_key: str) -> dict[str, Any]:
         now = utc_now()

@@ -18,7 +18,7 @@
               <p class="page-kicker">Rules</p>
               <h2>Color matching</h2>
             </div>
-            <v-btn color="primary" variant="tonal" @click="openNewRule">
+            <v-btn color="primary" variant="tonal" @click="store.openNewRule">
               New rule
             </v-btn>
           </v-card-title>
@@ -27,9 +27,9 @@
               Rules are checked from top to bottom. The first matching rule decides the pad color.
             </p>
 
-            <div v-if="rules.length" class="mapping-rule-list">
+            <div v-if="store.state.rules.length" class="mapping-rule-list">
               <article
-                v-for="(rule, index) in rules"
+                v-for="(rule, index) in store.state.rules"
                 :key="`${rule.cobo}-${rule.asad}-${rule.aget}-${rule.channel}-${index}`"
                 class="mapping-rule-item"
               >
@@ -46,13 +46,13 @@
                     icon="mdi-pencil-outline"
                     size="small"
                     variant="text"
-                    @click="openEditRule(index)"
+                    @click="store.openEditRule(index)"
                   />
                   <v-btn
                     icon="mdi-delete-outline"
                     size="small"
                     variant="text"
-                    @click="deleteRule(index)"
+                    @click="store.deleteRule(index)"
                   />
                 </div>
               </article>
@@ -70,21 +70,21 @@
           <v-card-title class="result-card-title">
             <div>
               <p class="page-kicker">Pads</p>
-              <h2>{{ selectedLayer === "Pads" ? "Detector footprint" : `${selectedLayer} unavailable` }}</h2>
+              <h2>{{ store.state.selectedLayer === "Pads" ? "Detector footprint" : `${store.state.selectedLayer} unavailable` }}</h2>
             </div>
-            <v-chip variant="tonal">{{ pads.length }} pads</v-chip>
+            <v-chip variant="tonal">{{ store.state.pads.length }} pads</v-chip>
           </v-card-title>
           <v-card-text>
             <div class="mapping-stage-toolbar">
               <div class="mapping-stage-toolbar-group">
                 <p class="page-kicker">Layer</p>
                 <v-btn-toggle
-                  :model-value="selectedLayer"
+                  :model-value="store.state.selectedLayer"
                   class="mapping-toggle"
                   color="primary"
                   divided
                   mandatory
-                  @update:model-value="selectedLayer = $event"
+                  @update:model-value="store.setSelectedLayer"
                 >
                   <v-btn
                     v-for="layer in layers"
@@ -100,12 +100,12 @@
               <div class="mapping-stage-toolbar-group">
                 <p class="page-kicker">View</p>
                 <v-btn-toggle
-                  :model-value="selectedView"
+                  :model-value="store.state.selectedView"
                   class="mapping-toggle"
                   color="primary"
                   divided
                   mandatory
-                  @update:model-value="selectedView = $event"
+                  @update:model-value="store.setSelectedView"
                 >
                   <v-btn
                     v-for="viewMode in views"
@@ -120,36 +120,36 @@
             </div>
 
             <v-alert
-              v-if="error"
+              v-if="store.state.error"
               class="mb-4 mt-4"
               color="error"
               icon="mdi-alert-circle-outline"
               rounded="xl"
               variant="tonal"
             >
-              {{ error }}
+              {{ store.state.error }}
             </v-alert>
 
-            <div v-else-if="loading" class="empty-state">
+            <div v-else-if="store.state.loading" class="empty-state">
               <v-progress-circular color="primary" indeterminate />
             </div>
 
             <v-alert
-              v-else-if="selectedLayer !== 'Pads'"
+              v-else-if="store.state.selectedLayer !== 'Pads'"
               class="mt-4"
               color="warning"
               icon="mdi-layers-outline"
               rounded="xl"
               variant="tonal"
             >
-              {{ selectedLayer }} is not wired to packaged geometry yet. Switch back to Pads to inspect the detector mapping.
+              {{ store.state.selectedLayer }} is not wired to packaged geometry yet. Switch back to Pads to inspect the detector mapping.
             </v-alert>
 
             <MappingCanvas
               v-else
-              :pads="pads"
-              :rules="rules"
-              :view="selectedView"
+              :pads="store.state.pads"
+              :rules="store.state.rules"
+              :view="store.state.selectedView"
             />
           </v-card-text>
         </v-card>
@@ -157,83 +157,26 @@
     </v-row>
 
     <MappingRuleDialog
-      v-model="dialogOpen"
-      :index="editingIndex"
-      :initial-rule="editingRule"
-      @save="saveRule"
+      :model-value="store.state.dialogOpen"
+      :index="store.state.editingIndex"
+      :initial-rule="store.editingRule.value"
+      @update:model-value="store.setDialogOpen"
+      @save="store.saveRule"
     />
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-
-import { getMappingPads } from "../api";
+import { onMounted } from "vue";
 import MappingCanvas from "../components/MappingCanvas.vue";
 import MappingRuleDialog from "../components/MappingRuleDialog.vue";
-import type {
-  MappingLayer,
-  MappingPad,
-  MappingRenderRule,
-  MappingViewMode,
-} from "../types";
+import { useMappingStore } from "../stores/mapping";
 
-const layers: MappingLayer[] = ["Pads", "Si-0", "Si-1"];
-const views: MappingViewMode[] = ["Upstream", "Downstream"];
-
-const loading = ref(true);
-const error = ref("");
-const pads = ref<MappingPad[]>([]);
-const selectedLayer = ref<MappingLayer>("Pads");
-const selectedView = ref<MappingViewMode>("Upstream");
-const rules = ref<MappingRenderRule[]>([]);
-const dialogOpen = ref(false);
-const editingIndex = ref<number | null>(null);
-
-const editingRule = computed<MappingRenderRule | null>(() => {
-  if (editingIndex.value === null) {
-    return null;
-  }
-  return rules.value[editingIndex.value] ?? null;
-});
-
-async function loadPads(): Promise<void> {
-  loading.value = true;
-  error.value = "";
-  try {
-    pads.value = await getMappingPads();
-  } catch (loadError) {
-    error.value = loadError instanceof Error ? loadError.message : String(loadError);
-  } finally {
-    loading.value = false;
-  }
-}
-
-function openNewRule(): void {
-  editingIndex.value = null;
-  dialogOpen.value = true;
-}
-
-function openEditRule(index: number): void {
-  editingIndex.value = index;
-  dialogOpen.value = true;
-}
-
-function saveRule(payload: { index: number | null; rule: MappingRenderRule }): void {
-  if (payload.index === null) {
-    rules.value = [...rules.value, payload.rule];
-    return;
-  }
-  rules.value = rules.value.map((rule, index) => (
-    index === payload.index ? payload.rule : rule
-  ));
-}
-
-function deleteRule(index: number): void {
-  rules.value = rules.value.filter((_, itemIndex) => itemIndex !== index);
-}
+const store = useMappingStore();
+const layers = ["Pads", "Si-0", "Si-1"];
+const views = ["Upstream", "Downstream"];
 
 onMounted(() => {
-  void loadPads();
+  void store.loadPads();
 });
 </script>

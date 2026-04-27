@@ -1,7 +1,7 @@
 import { reactive } from "vue";
 
 import { getBootstrap } from "../api";
-import type { BootstrapPayload } from "../types";
+import type { BootstrapPayload, SessionPayload } from "../types";
 
 interface ShellState {
   bootstrap: BootstrapPayload | null;
@@ -60,11 +60,19 @@ function setSelectedRun(run: number | string | null | undefined): void {
     run === null || run === undefined || run === "" ? null : Number(run);
 }
 
+function updateSession(session: SessionPayload): void {
+  if (!state.bootstrap) {
+    return;
+  }
+  state.bootstrap.session = session;
+}
+
 export function useShellStore() {
   return {
     state,
     init,
     applyBootstrap,
     setSelectedRun,
+    updateSession,
   };
 }

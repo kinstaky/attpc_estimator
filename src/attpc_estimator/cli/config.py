@@ -47,7 +47,13 @@ def table_config_values(
     table: str,
     allowed_keys: set[str],
 ) -> dict[str, Any]:
-    raw_table = payload.get(table)
+    raw_table: Any = payload
+    for segment in table.split("."):
+        if not isinstance(raw_table, dict):
+            raise SystemExit(f"config section [{table}] must be a TOML table")
+        if segment not in raw_table:
+            return {}
+        raw_table = raw_table.get(segment)
     if raw_table is None:
         return {}
     if not isinstance(raw_table, dict):
@@ -60,6 +66,21 @@ def parse_run(value: str) -> str:
     if not run or not run.isdigit():
         raise argparse.ArgumentTypeError("run must contain only digits")
     return run
+
+
+def argument_config_kwargs(values: dict[str, Any], key: str) -> dict[str, Any]:
+    return {
+        "required": key not in values,
+        "default": values.get(key),
+    }
+
+
+def bool_argument_config_kwargs(values: dict[str, Any], key: str) -> dict[str, Any]:
+    return {
+        "action": argparse.BooleanOptionalAction,
+        "required": key not in values,
+        "default": values.get(key),
+    }
 
 
 def _parse_config_option(argv: list[str]) -> str:
