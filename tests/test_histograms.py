@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import json
 
 import h5py
 import numpy as np
+import pytest
 
 import attpc_estimator.process.trace_scan as trace_scan
 from attpc_estimator.cli.filter import main as filter_main
@@ -16,6 +18,11 @@ from attpc_estimator.storage.labels_db import LabelRepository
 from attpc_estimator.process.cdf import CDF_THRESHOLDS
 from attpc_estimator.process.filter import build_filter_rows, default_output_name
 from attpc_estimator.service.estimator import EstimatorService
+from tests.test_estimator_service import (
+    write_gagg_sparse_hdf5_input,
+    write_ic_sparse_hdf5_input,
+    write_si_sparse_hdf5_input,
+)
 from tests.hdf5_fixtures import write_events_hdf5
 
 
@@ -46,6 +53,7 @@ def write_run_file(path: Path, events: dict[int, list[np.ndarray]]) -> None:
     with h5py.File(path, "w") as handle:
         event_ids = sorted(events)
         group = handle.create_group("events")
+        group.attrs["version"] = "libattpc_merger:2.0"
         group.attrs["min_event"] = min(event_ids)
         group.attrs["max_event"] = max(event_ids)
         group.attrs["bad_events"] = np.asarray([], dtype=np.int64)
@@ -53,6 +61,29 @@ def write_run_file(path: Path, events: dict[int, list[np.ndarray]]) -> None:
             event_group = group.create_group(f"event_{event_id}")
             get_group = event_group.create_group("get")
             get_group.create_dataset("pads", data=_pad_rows(events[event_id]))
+
+
+def write_ic_peak_hdf5_input(path: Path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 2
+        events.attrs["bad_events"] = np.array([], dtype=np.int64)
+
+        for event_id, center in ((1, 80.0), (2, 140.0)):
+            event = events.create_group(f"event_{event_id}")
+            frib = event.create_group("frib_physics")
+            x = np.arange(256, dtype=np.float32)
+            peak = 2000.0 * np.exp(-0.5 * ((x - center) / 6.0) ** 2)
+            trace_matrix = np.zeros((256, 2), dtype=np.float32)
+            trace_matrix[:, 0] = peak
+            trace_matrix[:, 1] = 10_000.0
+            frib.create_dataset("1903", data=trace_matrix)
+            frib.create_dataset("1904", data=np.zeros((256, 1), dtype=np.float32))
+            frib.create_dataset("1905", data=np.zeros((256, 1), dtype=np.float32))
+            frib.create_dataset("1906", data=np.zeros((257, 1), dtype=np.float32))
+            frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
 
 
 def seed_workspace(workspace: Path) -> None:
@@ -304,16 +335,18 @@ def test_filter_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatc
                 "baseline_window_scale = 10.0",
                 "limit = 1000",
                 "",
-                "[amplitude]",
+                "[attpc.amplitude]",
                 "peak_separation = 50.0",
                 "peak_prominence = 20.0",
                 "peak_width = 50.0",
+                "peak_threshold = 0.0",
+                "rel_height = 0.95",
                 "",
-                "[bitflip]",
+                "[attpc.bitflip]",
                 "baseline = 10.0",
                 "min_count = 1",
                 "",
-                "[saturation]",
+                "[attpc.saturation]",
                 "threshold = 2000.0",
             ]
         ),
@@ -529,6 +562,7 @@ def test_estimator_service_selects_filter_and_navigates(tmp_path) -> None:
         assert selected["session"] == {
             "mode": "review",
             "run": None,
+            "detector": "ATTPC",
             "source": "filter_file",
             "family": None,
             "label": None,
@@ -554,5 +588,126 @@ def test_estimator_service_selects_filter_and_navigates(tmp_path) -> None:
             previous_trace["eventId"],
             previous_trace["traceId"],
         ) == (8, 1, 0)
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize(
+    ("detector", "metric", "writer", "expected_name"),
+    [
+        (
+            "IC",
+            "baseline",
+            write_ic_sparse_hdf5_input,
+            "run_0016_detector_ic_metric_baseline_variant_none.npz",
+        ),
+        (
+            "IC",
+            "time",
+            write_ic_sparse_hdf5_input,
+            "run_0016_detector_ic_metric_time_variant_none.npz",
+        ),
+        (
+            "SI",
+            "baseline",
+            write_si_sparse_hdf5_input,
+            "run_0017_detector_si_metric_baseline_variant_none.npz",
+        ),
+        (
+            "GAGG",
+            "baseline",
+            write_gagg_sparse_hdf5_input,
+            "run_0018_detector_gagg_metric_baseline_variant_none.npz",
+        ),
+    ],
+)
+def test_detector_histograms_write_artifacts_and_reuse_cache(
+    tmp_path,
+    monkeypatch,
+    detector: str,
+    metric: str,
+    writer,
+    expected_name: str,
+) -> None:
+    run = int(expected_name.split("_")[1])
+    trace_path = tmp_path / f"run_{run:04d}.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    writer(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    try:
+        payload = service.get_histogram(metric=metric, mode="all", run=run, detector=detector)
+        assert payload["detector"] == detector
+        artifact_path = workspace / "histograms" / expected_name
+        assert artifact_path.exists()
+
+        def fail_build(**_kwargs):
+            raise AssertionError("detector histogram should have been loaded from cache")
+
+        monkeypatch.setattr(service.histograms, "_build_detector_artifact_payload", fail_build)
+        cached = service.get_histogram(metric=metric, mode="all", run=run, detector=detector)
+        assert cached == payload
+    finally:
+        service.close()
+
+
+def test_detector_histogram_cache_recomputes_when_config_changes(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "run_0016.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_ic_sparse_hdf5_input(trace_path)
+
+    first = EstimatorService(trace_path=trace_path, workspace=workspace)
+    artifact_path = (
+        workspace / "histograms" / "run_0016_detector_ic_metric_baseline_variant_none.npz"
+    )
+    try:
+        first.get_histogram(metric="baseline", mode="all", run=16, detector="IC")
+        assert artifact_path.exists()
+    finally:
+        first.close()
+
+    second = EstimatorService(
+        trace_path=trace_path,
+        workspace=workspace,
+        ic_baseline_window_scale=5.0,
+    )
+    build_calls = 0
+    original = second.histograms._build_detector_artifact_payload
+
+    def wrapped_build(**kwargs):
+        nonlocal build_calls
+        build_calls += 1
+        return original(**kwargs)
+
+    try:
+        monkeypatch.setattr(second.histograms, "_build_detector_artifact_payload", wrapped_build)
+        second.get_histogram(metric="baseline", mode="all", run=16, detector="IC")
+        assert build_calls == 1
+        payload = np.load(artifact_path)
+        metadata = json.loads(str(np.asarray(payload["metadata_json"]).item()))
+        assert metadata["baseline_window_scale"] == 5.0
+    finally:
+        second.close()
+
+
+def test_ic_time_histogram_returns_peak_bucket_counts(tmp_path) -> None:
+    trace_path = tmp_path / "run_0016.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_ic_peak_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    try:
+        payload = service.get_histogram(metric="time", mode="all", run=16, detector="IC")
+        assert payload["metric"] == "time"
+        assert payload["detector"] == "IC"
+        assert payload["binCount"] == 256
+        assert payload["binLabel"] == "Time bucket"
+        assert payload["countLabel"] == "Peak count"
+        assert len(payload["series"]) == 1
+        assert payload["series"][0]["traceCount"] == 2
+        assert sum(payload["series"][0]["histogram"]) >= 2
     finally:
         service.close()

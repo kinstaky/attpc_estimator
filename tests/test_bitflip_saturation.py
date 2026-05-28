@@ -34,6 +34,7 @@ def write_run_file(path: Path, events: dict[int, list[np.ndarray]]) -> None:
     with h5py.File(path, "w") as handle:
         event_ids = sorted(events)
         group = handle.create_group("events")
+        group.attrs["version"] = "libattpc_merger:2.0"
         group.attrs["min_event"] = min(event_ids)
         group.attrs["max_event"] = max(event_ids)
         group.attrs["bad_events"] = np.asarray([], dtype=np.int64)

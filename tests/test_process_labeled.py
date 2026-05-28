@@ -15,6 +15,7 @@ from tests.hdf5_fixtures import write_legacy_hdf5
 def write_hdf5_input(path: Path, traces: np.ndarray) -> None:
     with h5py.File(path, "w") as handle:
         events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
         events.attrs["min_event"] = 1
         events.attrs["max_event"] = 2
         events.attrs["bad_events"] = np.array([], dtype=np.int64)
@@ -161,7 +162,7 @@ def test_cdf_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) 
                 f'workspace = "{workspace}"',
                 'run = "0008"',
                 "",
-                "[cdf]",
+                "[attpc.cdf]",
                 "labeled = true",
                 "baseline_window_scale = 12.5",
             ]

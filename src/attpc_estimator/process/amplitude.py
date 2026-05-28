@@ -32,7 +32,10 @@ def build_amplitude_histogram(
     peak_separation: float = 50.0,
     peak_prominence: float = 20.0,
     peak_width: float = 50.0,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
     progress: ProgressReporter | None = None,
+    detector: str = "ATTPC",
 ) -> np.ndarray:
     histogram = np.zeros(AMPLITUDE_BIN_COUNT, dtype=np.int64)
 
@@ -44,6 +47,8 @@ def build_amplitude_histogram(
                 peak_separation=peak_separation,
                 peak_prominence=peak_prominence,
                 peak_width=peak_width,
+                peak_threshold=peak_threshold,
+                rel_height=rel_height,
             )
 
     scan_cleaned_trace_batches(
@@ -51,6 +56,7 @@ def build_amplitude_histogram(
         baseline_window_scale=baseline_window_scale,
         handler=handle_batch,
         progress=progress,
+        detector=detector,
     )
     return histogram
 
@@ -63,6 +69,8 @@ def build_labeled_amplitude_histograms(
     peak_separation: float = 50.0,
     peak_prominence: float = 20.0,
     peak_width: float = 50.0,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
     progress: ProgressReporter | None = None,
 ) -> dict[str, np.ndarray | np.int64]:
     grouped_run = load_grouped_labeled_run(
@@ -83,6 +91,8 @@ def build_labeled_amplitude_histograms(
                 peak_separation=peak_separation,
                 peak_prominence=peak_prominence,
                 peak_width=peak_width,
+                peak_threshold=peak_threshold,
+                rel_height=rel_height,
             )
 
     scan_grouped_labeled_trace_batches(
@@ -106,12 +116,16 @@ def max_peak_amplitude(
     peak_separation: float,
     peak_prominence: float,
     peak_width: float,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
 ) -> float:
     amplitudes = compute_peak_amplitudes(
         np.asarray([row]),
         peak_separation=peak_separation,
         peak_prominence=peak_prominence,
         peak_width=peak_width,
+        peak_threshold=peak_threshold,
+        rel_height=rel_height,
     )
     return float(amplitudes[0])
 
@@ -122,13 +136,16 @@ def _accumulate_peak_histogram(
     peak_separation: float,
     peak_prominence: float,
     peak_width: float,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
 ) -> None:
     peaks, _ = signal.find_peaks(
         row,
         distance=peak_separation,
+        height=peak_threshold,
         prominence=peak_prominence,
         width=(1.0, peak_width),
-        rel_height=0.95,
+        rel_height=rel_height,
     )
     for peak in peaks:
         amplitude = int(np.clip(row[peak], 0, histogram.shape[0] - 1))

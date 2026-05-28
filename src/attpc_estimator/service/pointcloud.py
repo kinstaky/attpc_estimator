@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from attpc_storage.hdf5 import PointcloudReader, RawTraceReader
+# from attpc_storage.hdf5 import PointcloudReader, RawTraceReader
 
 from ..process.line_pipeline import (
     MergeConfig,

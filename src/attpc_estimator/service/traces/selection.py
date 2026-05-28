@@ -6,13 +6,16 @@ from pathlib import Path
 import random
 import time
 
-import h5py
 import numpy as np
 
 from ...model.label import StoredLabel
 from ...model.trace import TraceRef
 from ...storage.run_paths import extract_run_id
-from ...utils.trace_data import collect_event_counts, describe_trace_events, event_trace_count
+from ...utils.trace_data import (
+    collect_reader_event_counts,
+    open_storage_trace_reader,
+    reader_event_trace_count,
+)
 
 MAX_RANDOM_TRACE_ATTEMPTS = 1024
 FULL_SCAN_EVENT_THRESHOLD = 200
@@ -98,25 +101,25 @@ class RandomUnlabeledSelector:
         self.verbose = verbose
         self._event_counts: list[tuple[int, int]] = []
         self._event_count_cache: dict[int, int] = {}
-        self._handle: h5py.File | None = None
+        self._reader = None
 
         started = time.perf_counter()
-        handle = h5py.File(trace_file, "r")
-        metadata = describe_trace_events(handle)
-        self._layout = metadata.layout
-        self._min_event = metadata.min_event
-        self._max_event = metadata.max_event
-        self._bad_events = set(metadata.bad_events)
+        reader = open_storage_trace_reader(run=self.run, path=str(trace_file))
+        self._layout = reader.layout
+        self._min_event = int(reader.min_event)
+        self._max_event = int(reader.max_event)
+        self._bad_events = set(getattr(reader, "bad_events", set()))
         self._strategy = (
             "full_scan"
-            if metadata.valid_event_span <= FULL_SCAN_EVENT_THRESHOLD
+            if (self._max_event - self._min_event + 1 - len(self._bad_events))
+            <= FULL_SCAN_EVENT_THRESHOLD
             else "sparse_random"
         )
         if self._strategy == "full_scan":
-            self._event_counts = collect_event_counts(handle)
-            handle.close()
+            self._event_counts = collect_reader_event_counts(reader)
+            reader.close()
         else:
-            self._handle = handle
+            self._reader = reader
         self._debug(
             "selector init run=%s layout=%s strategy=%s events=%s-%s bad=%s took=%.3fs",
             self.run,
@@ -193,9 +196,9 @@ class RandomUnlabeledSelector:
         return None
 
     def close(self) -> None:
-        if self._handle is not None:
-            self._handle.close()
-            self._handle = None
+        if self._reader is not None:
+            self._reader.close()
+            self._reader = None
 
     def _random_sparse_ref(
         self,
@@ -236,9 +239,9 @@ class RandomUnlabeledSelector:
         cached = self._event_count_cache.get(event_id)
         if cached is not None:
             return cached
-        if self._handle is None:
+        if self._reader is None:
             return 0
-        count = event_trace_count(self._handle, event_id)
+        count = reader_event_trace_count(self._reader, event_id)
         self._event_count_cache[event_id] = count
         return count
 

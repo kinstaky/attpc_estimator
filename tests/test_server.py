@@ -50,23 +50,33 @@ class DummyMergedService:
         *,
         mode: str,
         run: int | None = None,
+        detector: str | None = None,
         source: str | None = None,
         family: str | None = None,
         label: str | None = None,
         filter_file: str | None = None,
         event_id: int | None = None,
         trace_id: int | None = None,
+        si_side: str | None = None,
+        si_index: int | None = None,
+        gagg_layer: int | None = None,
+        gagg_index: int | None = None,
     ) -> dict:
         return {
             "session": {
                 "mode": mode,
                 "run": run,
+                "detector": detector,
                 "source": source,
                 "family": family,
                 "label": label,
                 "filterFile": filter_file,
                 "eventId": event_id,
                 "traceId": trace_id,
+                "siSide": si_side,
+                "siIndex": si_index,
+                "gaggLayer": gagg_layer,
+                "gaggIndex": gagg_index,
             }
         }
 
@@ -132,6 +142,7 @@ class DummyMergedService:
         metric: str,
         mode: str,
         run: int,
+        detector: str | None = None,
         variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
@@ -140,6 +151,7 @@ class DummyMergedService:
             "metric": metric,
             "mode": mode,
             "run": run,
+            "detector": detector,
             "filterFile": filter_file,
             "veto": veto,
         }
@@ -156,6 +168,7 @@ class DummyMergedService:
         metric: str,
         mode: str,
         run: int,
+        detector: str | None = None,
         variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
@@ -199,12 +212,17 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
             "session": {
                 "mode": "review",
                 "run": 8,
+                "detector": None,
                 "source": "label_set",
                 "family": "normal",
                 "label": None,
                 "filterFile": None,
                 "eventId": None,
                 "traceId": None,
+                "siSide": None,
+                "siIndex": None,
+                "gaggLayer": None,
+                "gaggIndex": None,
             }
         }
 
@@ -227,37 +245,6 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         )
         assert assign.status_code == 200
         assert assign.json() == {"eventId": 1, "traceId": 2, "family": "normal", "label": "0"}
-
-        assert client.get("/api/pointcloud-label/current").json() == {
-            "run": 8,
-            "eventId": 4,
-            "currentLabel": None,
-        }
-        assert client.get("/api/pointcloud/current").json() == {
-            "run": 8,
-            "eventId": 7,
-        }
-        assert client.post("/api/pointcloud/next").json() == {
-            "run": 8,
-            "eventId": 8,
-        }
-        previous_browse_pointcloud = client.post("/api/pointcloud/previous")
-        assert previous_browse_pointcloud.status_code == 404
-        assert previous_browse_pointcloud.json() == {"detail": "no previous browse pointcloud event"}
-        assert client.post("/api/pointcloud-label/next").json() == {
-            "run": 8,
-            "eventId": 5,
-            "currentLabel": "2",
-        }
-        previous_pointcloud = client.post("/api/pointcloud-label/previous")
-        assert previous_pointcloud.status_code == 404
-        assert previous_pointcloud.json() == {"detail": "no previous pointcloud event"}
-        pointcloud_assign = client.post(
-            "/api/pointcloud-label/assign",
-            json={"eventId": 5, "label": "2"},
-        )
-        assert pointcloud_assign.status_code == 200
-        assert pointcloud_assign.json() == {"eventId": 5, "label": "2"}
 
         histogram = client.get(
             "/api/histograms",

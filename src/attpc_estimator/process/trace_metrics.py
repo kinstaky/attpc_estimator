@@ -12,19 +12,57 @@ def compute_peak_amplitudes(
     peak_separation: float,
     peak_prominence: float,
     peak_width: float,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
 ) -> np.ndarray:
     amplitudes = np.zeros(cleaned.shape[0], dtype=np.float32)
     for trace_id, row in enumerate(cleaned):
         peaks, _ = signal.find_peaks(
             row,
             distance=peak_separation,
+            height=peak_threshold,
             prominence=peak_prominence,
             width=(1.0, peak_width),
-            rel_height=0.95,
+            rel_height=rel_height,
         )
         if peaks.size:
             amplitudes[trace_id] = float(np.max(row[peaks]))
     return amplitudes
+
+
+def analyze_trace_peaks(
+    row: np.ndarray,
+    *,
+    peak_separation: float,
+    peak_prominence: float,
+    peak_width: float,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
+) -> dict[str, list[int] | int]:
+    trace = np.asarray(row, dtype=np.float32)
+    peaks, properties = signal.find_peaks(
+        trace,
+        distance=peak_separation,
+        height=peak_threshold,
+        prominence=peak_prominence,
+        width=(1.0, peak_width),
+        rel_height=rel_height,
+    )
+    if peaks.size == 0:
+        return {
+            "peakIndices": [],
+            "leftIndices": [],
+            "rightIndices": [],
+            "peakCount": 0,
+        }
+    left_indices = np.rint(properties["left_ips"]).astype(np.int64, copy=False)
+    right_indices = np.rint(properties["right_ips"]).astype(np.int64, copy=False)
+    return {
+        "peakIndices": peaks.astype(np.int64, copy=False).tolist(),
+        "leftIndices": left_indices.tolist(),
+        "rightIndices": right_indices.tolist(),
+        "peakCount": int(peaks.size),
+    }
 
 
 def compute_cdf_threshold_values(

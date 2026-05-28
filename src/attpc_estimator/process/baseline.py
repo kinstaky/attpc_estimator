@@ -36,6 +36,7 @@ def build_baseline_histogram(
     *,
     baseline_window_scale: float = 10.0,
     progress: ProgressReporter | None = None,
+    detector: str = "ATTPC",
 ) -> dict[str, np.ndarray | np.int64]:
     histogram = np.zeros(BASELINE_BIN_COUNT, dtype=np.int64)
     trace_count = np.int64(0)
@@ -50,6 +51,7 @@ def build_baseline_histogram(
         baseline_window_scale=baseline_window_scale,
         handler=handle_batch,
         progress=progress,
+        detector=detector,
     )
     return {
         "trace_count": trace_count,

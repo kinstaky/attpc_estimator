@@ -83,10 +83,10 @@ class BitflipConfig:
 
 @dataclass(frozen=True, slots=True)
 class PeakConfig:
-    separation: float
-    prominence: float
-    max_width: float
-    threshold: float
+    peak_separation: float
+    peak_prominence: float
+    peak_width: float
+    peak_threshold: float
     rel_height: float
 
 
@@ -107,22 +107,22 @@ def _parse_args() -> argparse.Namespace:
     )
     fft_config = table_config_values(
         payload,
-        table="fft",
-        allowed_keys={"baseline_window_scale"},
+        table="attpc.baseline",
+        allowed_keys={"baseline_window_scale", "fft_window_scale"},
     )
     bitflip_config = table_config_values(
         payload,
-        table="bitflip",
+        table="attpc.bitflip",
         allowed_keys={"baseline", "min_count"},
     )
     peak_config = table_config_values(
         payload,
-        table="peak",
+        table="attpc.amplitude",
         allowed_keys={
-            "separation",
-            "prominence",
-            "max_width",
-            "threshold",
+            "peak_separation",
+            "peak_prominence",
+            "peak_width",
+            "peak_threshold",
             "rel_height",
         },
     )
@@ -175,7 +175,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--baseline-window-scale",
         type=float,
-        default=fft_config.get("baseline_window_scale", 20.0),
+        default=fft_config.get("baseline_window_scale", fft_config.get("fft_window_scale", 20.0)),
     )
     parser.add_argument(
         "--bitflip-baseline",
@@ -187,10 +187,10 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=bitflip_config.get("min_count", 1),
     )
-    parser.add_argument("--peak-separation", type=float, default=peak_config.get("separation", 50.0))
-    parser.add_argument("--peak-prominence", type=float, default=peak_config.get("prominence", 20.0))
-    parser.add_argument("--peak-max-width", type=float, default=peak_config.get("max_width", 50.0))
-    parser.add_argument("--peak-threshold", type=float, default=peak_config.get("threshold", 40.0))
+    parser.add_argument("--peak-separation", type=float, default=peak_config.get("peak_separation", 50.0))
+    parser.add_argument("--peak-prominence", type=float, default=peak_config.get("peak_prominence", 20.0))
+    parser.add_argument("--peak-width", type=float, default=peak_config.get("peak_width", 50.0))
+    parser.add_argument("--peak-threshold", type=float, default=peak_config.get("peak_threshold", 40.0))
     parser.add_argument("--peak-rel-height", type=float, default=peak_config.get("rel_height", 0.95))
     return parser.parse_args()
 
@@ -283,10 +283,10 @@ def process_run(
                 "fft_window_scale": float(fft_config.baseline_window_scale),
                 "bitflip_baseline": float(bitflip_config.baseline_threshold),
                 "bitflip_min_count": int(bitflip_config.min_count),
-                "peak_separation": float(peak_config.separation),
-                "peak_prominence": float(peak_config.prominence),
-                "peak_max_width": float(peak_config.max_width),
-                "peak_threshold": float(peak_config.threshold),
+                "peak_separation": float(peak_config.peak_separation),
+                "peak_prominence": float(peak_config.peak_prominence),
+                "peak_max_width": float(peak_config.peak_width),
+                "peak_threshold": float(peak_config.peak_threshold),
                 "peak_rel_height": float(peak_config.rel_height),
                 "micromegas_time_bucket": float(drift_config.micromegas_time_bucket),
                 "window_time_bucket": float(drift_config.window_time_bucket),
@@ -324,10 +324,10 @@ def process_run(
             else:
                 peaks = find_trace_peaks(
                     filtered,
-                    peak_separation=peak_config.separation,
-                    peak_prominence=peak_config.prominence,
-                    peak_max_width=peak_config.max_width,
-                    peak_threshold=peak_config.threshold,
+                    peak_separation=peak_config.peak_separation,
+                    peak_prominence=peak_config.peak_prominence,
+                    peak_max_width=peak_config.peak_width,
+                    peak_threshold=peak_config.peak_threshold,
                     rel_height=peak_config.rel_height,
                 )
                 event_hits = build_tpc_hits(
@@ -372,10 +372,10 @@ def main() -> None:
             min_count=int(args.bitflip_min_count),
         ),
         peak_config=PeakConfig(
-            separation=float(args.peak_separation),
-            prominence=float(args.peak_prominence),
-            max_width=float(args.peak_max_width),
-            threshold=float(args.peak_threshold),
+            peak_separation=float(args.peak_separation),
+            peak_prominence=float(args.peak_prominence),
+            peak_width=float(args.peak_width),
+            peak_threshold=float(args.peak_threshold),
             rel_height=float(args.peak_rel_height),
         ),
         drift_config=DriftConfig(

@@ -28,6 +28,7 @@ from tests.hdf5_fixtures import write_events_hdf5, write_legacy_hdf5
 def write_hdf5_input(path: Path) -> None:
     with h5py.File(path, "w") as handle:
         events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
         events.attrs["min_event"] = 1
         events.attrs["max_event"] = 2
         events.attrs["bad_events"] = np.array([], dtype=np.int64)
@@ -279,7 +280,7 @@ def test_cdf_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
                 f'workspace = "{workspace}"',
                 'run = "0006"',
                 "",
-                "[cdf]",
+                "[attpc.cdf]",
                 "baseline_window_scale = 12.5",
                 "labeled = false",
             ]
@@ -310,7 +311,7 @@ def test_cdf_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatch) 
                 f'workspace = "{workspace}"',
                 "run = 106",
                 "",
-                "[cdf]",
+                "[attpc.cdf]",
                 "baseline_window_scale = 12.5",
                 "labeled = false",
             ]
@@ -340,7 +341,7 @@ def test_cdf_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> N
                 f'workspace = "{workspace}"',
                 'run = "9999"',
                 "",
-                "[cdf]",
+                "[attpc.cdf]",
                 "baseline_window_scale = 12.5",
             ]
         ),

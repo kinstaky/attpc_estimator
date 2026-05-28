@@ -34,13 +34,18 @@
 import { onMounted } from "vue";
 import MainNavRail from "./components/MainNavRail.vue";
 import { useShellStore } from "./stores/shell";
-import { hydrateUiState, startUiStatePersistence } from "./stores/ui_state";
+import {
+  hydrateUiState,
+  normalizeCurrentRoute,
+  startUiStatePersistence,
+} from "./stores/ui_state";
 
 const { state, init } = useShellStore();
 
 onMounted(() => {
   void (async () => {
     await init();
+    await normalizeCurrentRoute();
     if (state.bootstrap?.uiState) {
       await hydrateUiState(state.bootstrap.uiState);
     }

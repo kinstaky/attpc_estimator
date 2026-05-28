@@ -98,10 +98,10 @@ def test_process_run_writes_v2_pointcloud(tmp_path: Path) -> None:
         fft_config=FftConfig(baseline_window_scale=20.0),
         bitflip_config=BitflipConfig(baseline_threshold=10.0, min_count=1),
         peak_config=PeakConfig(
-            separation=10.0,
-            prominence=5.0,
-            max_width=12.0,
-            threshold=10.0,
+            peak_separation=10.0,
+            peak_prominence=5.0,
+            peak_width=12.0,
+            peak_threshold=10.0,
             rel_height=0.95,
         ),
         drift_config=DriftConfig(
@@ -164,10 +164,10 @@ def test_process_run_supports_legacy_trace_input(tmp_path: Path) -> None:
         fft_config=FftConfig(baseline_window_scale=20.0),
         bitflip_config=BitflipConfig(baseline_threshold=10.0, min_count=1),
         peak_config=PeakConfig(
-            separation=10.0,
-            prominence=5.0,
-            max_width=12.0,
-            threshold=10.0,
+            peak_separation=10.0,
+            peak_prominence=5.0,
+            peak_width=12.0,
+            peak_threshold=10.0,
             rel_height=0.95,
         ),
         drift_config=DriftConfig(

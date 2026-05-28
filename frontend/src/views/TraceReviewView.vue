@@ -61,6 +61,17 @@
             </v-col>
           </template>
           <template v-else-if="review.state.source === 'event_trace'">
+            <v-col v-if="showDetectorSelect" cols="12" md="3">
+              <v-select
+                :items="detectorOptions"
+                item-title="title"
+                item-value="value"
+                label="Detector"
+                :model-value="review.state.detector"
+                variant="outlined"
+                @update:model-value="review.setDetector"
+              />
+            </v-col>
             <v-col cols="12" md="3">
               <v-select
                 :items="runOptions"
@@ -83,7 +94,7 @@
                 @update:model-value="review.setEventId"
               />
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col v-if="showTraceIdInput" cols="12" md="3">
               <v-text-field
                 label="Trace id"
                 type="number"
@@ -92,6 +103,50 @@
                 :hint="traceRangeText"
                 persistent-hint
                 @update:model-value="review.setTraceId"
+              />
+            </v-col>
+            <v-col v-else-if="showSiSelector" cols="12" md="3">
+              <v-select
+                :items="siSideOptions"
+                item-title="title"
+                item-value="value"
+                label="Silicon side"
+                :model-value="review.state.siSide"
+                variant="outlined"
+                @update:model-value="review.setSiSide"
+              />
+            </v-col>
+            <v-col v-else-if="showGaggSelector" cols="12" md="3">
+              <v-select
+                :items="gaggLayerOptions"
+                item-title="title"
+                item-value="value"
+                label="GAGG layer"
+                :model-value="review.state.gaggLayer"
+                variant="outlined"
+                @update:model-value="review.setGaggLayer"
+              />
+            </v-col>
+            <v-col v-if="showSiSelector" cols="12" md="3">
+              <v-text-field
+                label="Silicon index"
+                type="number"
+                :model-value="review.state.siIndex"
+                variant="outlined"
+                :hint="selectorHintText"
+                persistent-hint
+                @update:model-value="review.setSiIndex"
+              />
+            </v-col>
+            <v-col v-else-if="showGaggSelector" cols="12" md="3">
+              <v-text-field
+                label="GAGG index"
+                type="number"
+                :model-value="review.state.gaggIndex"
+                variant="outlined"
+                :hint="selectorHintText"
+                persistent-hint
+                @update:model-value="review.setGaggIndex"
               />
             </v-col>
           </template>
@@ -123,6 +178,37 @@
             <v-btn color="primary" :loading="review.state.loading" @click="submitReview">
               Load review set
             </v-btn>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
+    <v-card
+      v-if="review.state.source === 'event_trace'"
+      class="control-card mt-4"
+      rounded="xl"
+    >
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="12" md="3">
+            <v-select
+              :items="filterItemOptions"
+              item-title="title"
+              item-value="value"
+              label="Filter item"
+              :model-value="review.state.filterItem"
+              variant="outlined"
+              @update:model-value="review.setFilterItem"
+            />
+          </v-col>
+          <v-col v-if="review.state.filterItem === 'max'" cols="12" md="3">
+            <v-text-field
+              label="Max threshold"
+              type="number"
+              :model-value="review.state.filterValue"
+              variant="outlined"
+              @update:model-value="review.setFilterValue"
+            />
           </v-col>
         </v-row>
       </v-card-text>
@@ -178,7 +264,7 @@
         </div>
 
         <v-row class="mt-2" dense>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="3">
             <v-card rounded="xl" variant="tonal">
               <v-card-text>
                 <p class="page-kicker">Source</p>
@@ -186,7 +272,7 @@
               </v-card-text>
             </v-card>
           </v-col>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="3">
             <v-card rounded="xl" variant="tonal">
               <v-card-text>
                 <p class="page-kicker">Trace key</p>
@@ -194,7 +280,17 @@
               </v-card-text>
             </v-card>
           </v-col>
-          <v-col cols="12" md="4" v-if="review.state.currentTrace.reviewProgress">
+          <v-col cols="12" md="3" v-if="showDetectorMetaCard">
+            <v-card rounded="xl" variant="tonal">
+              <v-card-text>
+                <p class="page-kicker">Detector meta</p>
+                <strong v-for="line in detectorMetaLines" :key="line" class="meta-line">
+                  {{ line }}
+                </strong>
+              </v-card-text>
+            </v-card>
+          </v-col>
+          <v-col cols="12" md="3" v-if="review.state.currentTrace.reviewProgress">
             <v-card rounded="xl" variant="tonal">
               <v-card-text>
                 <p class="page-kicker">Review progress</p>
@@ -254,7 +350,46 @@ const visualModeOptions = [
   { title: "Raw", value: "raw" },
   { title: "CDF", value: "cdf" },
   { title: "Curvature", value: "curvature" },
+  { title: "Peak", value: "peak" },
 ];
+
+const filterItemOptions = [
+  { title: "None", value: "none" },
+  { title: "Max", value: "max" },
+];
+
+const detectorOptions = [
+  { title: "ATTPC", value: "ATTPC" },
+  { title: "IC", value: "IC" },
+  { title: "Si", value: "SI" },
+  { title: "GAGG", value: "GAGG" },
+];
+
+const siSideOptions = [
+  { title: "Upstream front", value: "upstream_front" },
+  { title: "Upstream back", value: "upstream_back" },
+  { title: "Downstream front", value: "downstream_front" },
+  { title: "Downstream back", value: "downstream_back" },
+];
+
+const gaggLayerOptions = [
+  { title: "Layer 1", value: 1 },
+  { title: "Layer 2", value: 2 },
+];
+
+const showDetectorSelect = computed(() => review.state.source === "event_trace");
+
+const showTraceIdInput = computed(() =>
+  review.state.source === "event_trace" && review.state.detector === "ATTPC",
+);
+
+const showSiSelector = computed(() =>
+  review.state.source === "event_trace" && review.state.detector === "SI",
+);
+
+const showGaggSelector = computed(() =>
+  review.state.source === "event_trace" && review.state.detector === "GAGG",
+);
 
 const runOptions = computed(() =>
   (shell.state.bootstrap?.runs || []).map((run) => ({
@@ -295,7 +430,7 @@ const reviewSourceLabel = computed(() => {
     return review.state.filterFile || "Filter file";
   }
   if (review.state.source === "event_trace") {
-    return "Direct event/trace";
+    return `${review.state.detector} direct event/trace`;
   }
   if (!review.state.label) {
     return `Labeled ${review.state.family}`;
@@ -334,6 +469,54 @@ const traceRangeText = computed(() => {
   return `Trace range: 0 .. ${trace.eventTraceCount - 1}`;
 });
 
+const selectorHintText = computed(() => {
+  const selector = review.state.currentTrace?.eventContext?.current?.selector;
+  if (review.state.detector === "SI" && selector?.kind === "si") {
+    const count = selector.sideCounts?.[review.state.siSide] ?? 0;
+    return `Index range for this side: 0 .. ${Math.max(0, count - 1)}`;
+  }
+  if (review.state.detector === "GAGG" && selector?.kind === "gagg") {
+    const count = review.state.gaggLayer === 1
+      ? selector.layerCounts?.layer1 ?? 0
+      : selector.layerCounts?.layer2 ?? 0;
+    return `Index range for this layer: 0 .. ${Math.max(0, count - 1)}`;
+  }
+  return "Load an event to see the selector range.";
+});
+
+const detectorMeta = computed(() => review.state.currentTrace?.traceMetadata ?? null);
+
+const showDetectorMetaCard = computed(() => detectorMeta.value !== null);
+
+const detectorMetaLines = computed(() => {
+  const metadata = detectorMeta.value;
+  if (!metadata) {
+    return [];
+  }
+  if (metadata.kind === "attpc") {
+    return [`Pad ${metadata.padId}`];
+  }
+  if (metadata.kind === "si") {
+    return [
+      `Layer ${metadata.layer}`,
+      `Side ${metadata.side}`,
+      `Strip ${metadata.strip}`,
+    ];
+  }
+  if (metadata.kind === "gagg") {
+    return [`Layer ${metadata.layer}`, `Index ${metadata.index}`];
+  }
+  return [];
+});
+
+function normalizeDetector(detector) {
+  const token = String(detector || "ATTPC").trim().toUpperCase();
+  if (token === "IC" || token === "SI" || token === "GAGG") {
+    return token;
+  }
+  return "ATTPC";
+}
+
 function currentLabelText(label) {
   if (!label) {
     return "Unlabeled";
@@ -348,6 +531,7 @@ async function submitReview() {
   await router.replace({ name: "browse-trace", query: review.buildQuery() });
   try {
     await review.loadReviewSet();
+    await router.replace({ name: "browse-trace", query: review.buildQuery() });
   } catch {
     // Store already captured the error.
   }
@@ -371,13 +555,26 @@ function reviewQueryMatchesState(query) {
     return review.state.filterFile === filterFile;
   }
   if (source === "event_trace") {
+    const queryDetector = normalizeDetector(query.detector);
     const queryRun = query.run === undefined ? null : Number(query.run);
     const queryEventId = query.eventId === undefined ? null : Number(query.eventId);
-    const queryTraceId = query.traceId === undefined ? null : Number(query.traceId);
+    const queryTraceId =
+      queryDetector === "IC"
+        ? 0
+        : query.traceId === undefined
+          ? null
+          : Number(query.traceId);
+    const queryFilterItem = query.filterItem === "max" ? "max" : "none";
+    const queryFilterValue =
+      query.filterValue === undefined ? null : Number(query.filterValue);
     return (
+      review.state.detector === queryDetector
+      &&
       review.state.run === queryRun
       && review.state.eventId === queryEventId
       && review.state.traceId === queryTraceId
+      && review.state.filterItem === queryFilterItem
+      && review.state.filterValue === queryFilterValue
     );
   }
   const queryRun = query.run === undefined ? null : Number(query.run);
@@ -407,10 +604,24 @@ function reviewQueryMatchesSession(query) {
     return session.filterFile === (typeof query.filterFile === "string" ? query.filterFile : null);
   }
   if (source === "event_trace") {
+    const queryDetector = normalizeDetector(query.detector);
+    const queryFilterItem = query.filterItem === "max" ? "max" : "none";
+    const queryFilterValue =
+      query.filterValue === undefined ? null : Number(query.filterValue);
     return (
+      session.detector === queryDetector
+      &&
       session.run === (query.run === undefined ? null : Number(query.run))
       && session.eventId === (query.eventId === undefined ? null : Number(query.eventId))
-      && session.traceId === (query.traceId === undefined ? null : Number(query.traceId))
+      && session.traceId === (
+        queryDetector === "IC"
+          ? 0
+          : query.traceId === undefined
+            ? null
+            : Number(query.traceId)
+      )
+      && (session.filterItem ?? "none") === queryFilterItem
+      && (session.filterValue ?? null) === queryFilterValue
     );
   }
   return (
@@ -531,3 +742,9 @@ watch(
   { deep: true },
 );
 </script>
+
+<style scoped>
+.meta-line {
+  display: block;
+}
+</style>

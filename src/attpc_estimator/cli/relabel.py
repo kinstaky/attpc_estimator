@@ -53,6 +53,8 @@ def main() -> None:
             peak_separation=args.peak_separation,
             peak_prominence=args.peak_prominence,
             peak_width=args.peak_width,
+            peak_threshold=args.peak_threshold,
+            rel_height=args.peak_rel_height,
             bitflip_baseline_threshold=args.bitflip_baseline,
             bitflip_min_count=args.bitflip_min_count,
             saturation_threshold=args.saturation_threshold,
@@ -95,17 +97,23 @@ def _parse_args() -> argparse.Namespace:
     )
     amplitude_config = table_config_values(
         payload,
-        table="amplitude",
-        allowed_keys={"peak_separation", "peak_prominence", "peak_width"},
+        table="attpc.amplitude",
+        allowed_keys={
+            "peak_separation",
+            "peak_prominence",
+            "peak_width",
+            "peak_threshold",
+            "rel_height",
+        },
     )
     bitflip_config = table_config_values(
         payload,
-        table="bitflip",
+        table="attpc.bitflip",
         allowed_keys={"baseline", "min_count"},
     )
     saturation_config = table_config_values(
         payload,
-        table="saturation",
+        table="attpc.saturation",
         allowed_keys={
             "threshold",
             "drop_threshold",
@@ -172,6 +180,18 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         **argument_config_kwargs(amplitude_config, "peak_width"),
         help="Maximum width of peaks",
+    )
+    parser.add_argument(
+        "--peak-threshold",
+        type=float,
+        **argument_config_kwargs(amplitude_config, "peak_threshold"),
+        help="Minimum peak amplitude",
+    )
+    parser.add_argument(
+        "--peak-rel-height",
+        type=float,
+        **argument_config_kwargs(amplitude_config, "rel_height"),
+        help="Relative height used when measuring peak width",
     )
     parser.add_argument(
         "--bitflip-baseline",

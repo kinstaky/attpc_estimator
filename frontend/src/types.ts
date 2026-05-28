@@ -1,12 +1,21 @@
+export type DetectorName = "ATTPC" | "IC" | "SI" | "GAGG";
+
 export interface SessionPayload {
   mode: "label" | "label_review" | "review" | "pointcloud_label" | "pointcloud_label_review" | "pointcloud";
   run: number | null;
+  detector?: DetectorName | null;
   source?: "label_set" | "filter_file" | "event_trace" | "event_id" | null;
   family?: "normal" | "strange" | null;
   label?: string | null;
   filterFile?: string | null;
   eventId?: number | null;
   traceId?: number | null;
+  siSide?: SiliconSide | null;
+  siIndex?: number | null;
+  gaggLayer?: number | null;
+  gaggIndex?: number | null;
+  filterItem?: "none" | "max" | null;
+  filterValue?: number | null;
 }
 
 export interface ShellUiState {
@@ -14,26 +23,31 @@ export interface ShellUiState {
 }
 
 export interface LabelUiState {
-  visualMode: "raw" | "cdf" | "curvature";
+  visualMode: "raw" | "cdf" | "curvature" | "peak";
 }
 
 export interface ReviewUiState {
   source: "label_set" | "filter_file" | "event_trace";
+  detector: DetectorName;
   run: number | null;
   family: "normal" | "strange";
   label: string;
   filterFile: string;
   eventId: number | null;
   traceId: number | null;
-  visualMode: "raw" | "cdf" | "curvature";
+  filterItem: "none" | "max";
+  filterValue: number | null;
+  visualMode: "raw" | "cdf" | "curvature" | "peak";
 }
 
 export interface HistogramsUiState {
+  selectedDetector: DetectorName;
   selectedRun: number | null;
   selectedPhase: "phase1" | "phase2";
   selectedMetric:
     | "cdf"
     | "amplitude"
+    | "time"
     | "baseline"
     | "bitflip"
     | "saturation"
@@ -79,14 +93,20 @@ export interface UiStatePayload {
   review: ReviewUiState;
   histograms: HistogramsUiState;
   mapping: MappingUiState;
-  pointcloud: PointcloudUiState;
-  pointcloudLabel: PointcloudLabelUiState;
+  pointcloud?: PointcloudUiState;
+  pointcloudLabel?: PointcloudLabelUiState;
 }
 
 export interface EventIdRange {
   min: number;
   max: number;
 }
+
+export type SiliconSide =
+  | "upstream_front"
+  | "upstream_back"
+  | "downstream_front"
+  | "downstream_back";
 
 export interface StrangeLabel {
   name: string;
@@ -134,6 +154,7 @@ export interface BitflipStructure {
 }
 
 export interface TracePayload {
+  detector?: DetectorName;
   run?: number;
   eventId: number;
   traceId: number;
@@ -145,6 +166,17 @@ export interface TracePayload {
   reviewProgress: ReviewProgress | null;
   eventTraceCount: number | null;
   eventIdRange: EventIdRange | null;
+  traceSelector?: TraceSelector | null;
+  eventContext?: EventContext | null;
+  traceMetadata?: TraceMetadata | null;
+  peakAnalysis?: PeakAnalysis | null;
+}
+
+export interface PeakAnalysis {
+  peakIndices: number[];
+  leftIndices: number[];
+  rightIndices: number[];
+  peakCount: number;
 }
 
 export interface FilterFileItem {
@@ -161,6 +193,7 @@ export type HistogramPhase = "phase1" | "phase2";
 export type HistogramMetric =
   | "cdf"
   | "amplitude"
+  | "time"
   | "baseline"
   | "bitflip"
   | "saturation"
@@ -182,20 +215,106 @@ export interface BootstrapPayload {
   databaseFile: string;
   runs: number[];
   eventRanges: Record<string, EventIdRange>;
-  pointcloudRuns: number[];
-  pointcloudEventRanges: Record<string, EventIdRange>;
+  pointcloudRuns?: number[];
+  pointcloudEventRanges?: Record<string, EventIdRange>;
   filterFiles: FilterFileItem[];
   histogramAvailability: Record<
     string,
     Record<HistogramMetric, HistogramAvailabilityEntry>
   >;
+  detectorHistogramAvailability?: Record<
+    DetectorName,
+    Record<string, Record<HistogramMetric, HistogramAvailabilityEntry>>
+  >;
   normalSummary: NormalSummaryItem[];
-  pointcloudSummary: PointcloudSummaryItem[];
+  pointcloudSummary?: PointcloudSummaryItem[];
   strangeSummary: StrangeSummaryItem[];
   strangeLabels: StrangeLabel[];
   session: SessionPayload;
   uiState: UiStatePayload;
 }
+
+export interface TraceSelectorBase {
+  kind: string;
+}
+
+export interface SiliconTraceSelector extends TraceSelectorBase {
+  kind: "si";
+  side: SiliconSide;
+  index: number;
+}
+
+export interface GaggTraceSelector extends TraceSelectorBase {
+  kind: "gagg";
+  layer: 1 | 2;
+  index: number;
+}
+
+export type TraceSelector = SiliconTraceSelector | GaggTraceSelector;
+
+export interface TraceIdEventSelector {
+  kind: "trace_id";
+}
+
+export interface SingleTraceEventSelector {
+  kind: "single_trace";
+}
+
+export interface SiliconEventSelector {
+  kind: "si";
+  sideCounts: Record<SiliconSide, number>;
+}
+
+export interface GaggEventSelector {
+  kind: "gagg";
+  layerCounts: {
+    layer1: number;
+    layer2: number;
+  };
+}
+
+export type EventSelector =
+  | TraceIdEventSelector
+  | SingleTraceEventSelector
+  | SiliconEventSelector
+  | GaggEventSelector;
+
+export interface EventDescription {
+  eventId: number;
+  traceCount: number;
+  traceIdMin: number;
+  traceIdMax: number;
+  selector: EventSelector;
+}
+
+export interface EventContext {
+  current: EventDescription;
+  previous: EventDescription | null;
+  next: EventDescription | null;
+}
+
+export interface AttpcTraceMetadata {
+  kind: "attpc";
+  padId: number;
+}
+
+export interface SiliconTraceMetadata {
+  kind: "si";
+  layer: 0 | 1;
+  side: "front" | "back";
+  strip: number;
+}
+
+export interface GaggTraceMetadata {
+  kind: "gagg";
+  layer: 0 | 1;
+  index: number;
+}
+
+export type TraceMetadata =
+  | AttpcTraceMetadata
+  | SiliconTraceMetadata
+  | GaggTraceMetadata;
 
 export interface HistogramSeries {
   labelKey: string;
@@ -229,6 +348,7 @@ export interface HistogramPayload {
   metric: HistogramMetric;
   mode: HistogramMode;
   run: number;
+  detector?: DetectorName;
   variant?: HistogramVariant | null;
   filterFile?: string | null;
   veto?: boolean;

@@ -15,6 +15,7 @@ from tests.hdf5_fixtures import write_legacy_hdf5
 def write_hdf5_input(path) -> None:
     with h5py.File(path, "w") as handle:
         events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
         events.attrs["min_event"] = 1
         events.attrs["max_event"] = 2
         events.attrs["bad_events"] = np.array([], dtype=np.int64)
@@ -48,6 +49,7 @@ def write_hdf5_input(path) -> None:
 def write_sparse_hdf5_input(path) -> None:
     with h5py.File(path, "w") as handle:
         events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
         events.attrs["min_event"] = 1
         events.attrs["max_event"] = 4
         events.attrs["bad_events"] = np.array([2], dtype=np.int64)
@@ -76,6 +78,82 @@ def write_sparse_hdf5_input(path) -> None:
                 dtype=np.float32,
             ),
         )
+
+
+def write_ic_sparse_hdf5_input(path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 4
+        events.attrs["bad_events"] = np.array([2], dtype=np.int64)
+
+        for event_id in (1, 4):
+            event = events.create_group(f"event_{event_id}")
+            frib = event.create_group("frib_physics")
+            trace_matrix = np.zeros((256, 2), dtype=np.float32)
+            trace_matrix[:, 0] = np.arange(256, dtype=np.float32) + (event_id * 100.0)
+            trace_matrix[:, 1] = 10_000.0
+            frib.create_dataset("1903", data=trace_matrix)
+            frib.create_dataset("1904", data=np.zeros((256, 1), dtype=np.float32))
+            frib.create_dataset("1905", data=np.zeros((256, 1), dtype=np.float32))
+            frib.create_dataset("1906", data=np.zeros((257, 1), dtype=np.float32))
+            frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
+
+
+def _si_matrix(count: int, *, offset: float) -> np.ndarray:
+    data = np.zeros((count, 517), dtype=np.float32)
+    if count <= 0:
+        return data
+    for row in range(count):
+        data[row, 4] = 100 + row
+        data[row, 5:] = offset + (row * 1000.0) + np.arange(512, dtype=np.float32)
+    return data
+
+
+def write_si_sparse_hdf5_input(path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 4
+        events.attrs["bad_events"] = np.array([2], dtype=np.int64)
+
+        event_1 = events.create_group("event_1")
+        get_1 = event_1.create_group("get")
+        get_1.create_dataset("si_upstream_front", data=_si_matrix(4, offset=100.0))
+        get_1.create_dataset("si_upstream_back", data=_si_matrix(2, offset=200.0))
+        get_1.create_dataset("si_downstream_front", data=_si_matrix(3, offset=300.0))
+        get_1.create_dataset("si_downstream_back", data=_si_matrix(0, offset=400.0))
+
+        event_4 = events.create_group("event_4")
+        get_4 = event_4.create_group("get")
+        get_4.create_dataset("si_upstream_front", data=_si_matrix(1, offset=500.0))
+        get_4.create_dataset("si_upstream_back", data=_si_matrix(0, offset=600.0))
+        get_4.create_dataset("si_downstream_front", data=_si_matrix(2, offset=700.0))
+        get_4.create_dataset("si_downstream_back", data=_si_matrix(0, offset=800.0))
+
+
+def write_gagg_sparse_hdf5_input(path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 4
+        events.attrs["bad_events"] = np.array([2], dtype=np.int64)
+
+        for event_id in (1, 4):
+            event = events.create_group(f"event_{event_id}")
+            frib = event.create_group("frib_physics")
+            data_1903 = np.arange(9 * 256, dtype=np.float32).reshape(9, 256) + (event_id * 100.0)
+            data_1904 = np.arange(8 * 256, dtype=np.float32).reshape(8, 256) + (event_id * 200.0)
+            data_1905 = np.arange(7 * 256, dtype=np.float32).reshape(7, 256) + (event_id * 300.0)
+            data_1906 = np.arange(16 * 257, dtype=np.float32).reshape(16, 257) + (event_id * 400.0)
+            frib.create_dataset("1903", data=data_1903)
+            frib.create_dataset("1904", data=data_1904)
+            frib.create_dataset("1905", data=data_1905)
+            frib.create_dataset("1906", data=data_1906)
+            frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
 
 
 def write_pointcloud_input(path) -> None:
@@ -150,6 +228,7 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
     assert payload["session"] == {
         "mode": "review",
         "run": 1,
+        "detector": "ATTPC",
         "source": "label_set",
         "family": "normal",
         "label": None,
@@ -161,6 +240,7 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
     first = payload["trace"]
     assert first == {
         "run": 1,
+        "detector": "ATTPC",
         "eventId": 1,
         "traceId": 0,
         "raw": [1.0, 2.0, 3.0],
@@ -171,6 +251,7 @@ def test_review_mode_filters_traces_and_stops_at_bounds(tmp_path) -> None:
         "reviewProgress": {"current": 1, "total": 2},
         "eventTraceCount": None,
         "eventIdRange": None,
+        "traceMetadata": {"kind": "attpc", "padId": 14},
     }
     assert first["trace"] == payload["trace"]["trace"]
     assert first["transformed"] == payload["trace"]["transformed"]
@@ -310,6 +391,7 @@ def test_direct_review_mode_supports_event_and_trace_navigation(tmp_path) -> Non
     assert payload["session"] == {
         "mode": "review",
         "run": 12,
+        "detector": "ATTPC",
         "source": "event_trace",
         "family": None,
         "label": None,
@@ -322,6 +404,7 @@ def test_direct_review_mode_supports_event_and_trace_navigation(tmp_path) -> Non
     assert first["eventTraceCount"] == 2
     assert first["eventIdRange"] == {"min": 1, "max": 4}
     assert first["reviewProgress"] is None
+    assert first["traceMetadata"] == {"kind": "attpc", "padId": 24}
 
     still_last_trace = service.next_trace()
     assert (still_last_trace["eventId"], still_last_trace["traceId"]) == (1, 1)
@@ -341,6 +424,187 @@ def test_direct_review_mode_supports_event_and_trace_navigation(tmp_path) -> Non
     previous_event = service.previous_event()
     assert (previous_event["eventId"], previous_event["traceId"]) == (1, 0)
     assert previous_event["eventTraceCount"] == 2
+
+
+def test_direct_review_mode_supports_ic_event_navigation(tmp_path) -> None:
+    trace_path = tmp_path / "run_0016.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_ic_sparse_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+
+    payload = service.set_session(
+        mode="review",
+        run=16,
+        detector="IC",
+        source="event_trace",
+        event_id=1,
+    )
+
+    assert payload["session"] == {
+        "mode": "review",
+        "run": 16,
+        "detector": "IC",
+        "source": "event_trace",
+        "family": None,
+        "label": None,
+        "filterFile": None,
+        "eventId": 1,
+        "traceId": 0,
+    }
+    first = payload["trace"]
+    assert first["detector"] == "IC"
+    assert first["eventTraceCount"] == 1
+    assert first["eventIdRange"] == {"min": 1, "max": 4}
+    assert first["currentLabel"] is None
+    assert "traceMetadata" not in first
+
+    next_event = service.next_event()
+    assert next_event["detector"] == "IC"
+    assert (next_event["eventId"], next_event["traceId"]) == (4, 0)
+    assert next_event["eventTraceCount"] == 1
+
+    previous_event = service.previous_event()
+    assert (previous_event["eventId"], previous_event["traceId"]) == (1, 0)
+
+    coerced = service.set_session(
+        mode="review",
+        run=16,
+        detector="IC",
+        source="event_trace",
+        event_id=1,
+        trace_id=1,
+    )
+    assert coerced["session"]["traceId"] == 0
+    assert coerced["trace"]["traceId"] == 0
+def test_direct_review_mode_supports_si_event_and_trace_navigation(tmp_path) -> None:
+    trace_path = tmp_path / "run_0017.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_si_sparse_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+
+    payload = service.set_session(
+        mode="review",
+        run=17,
+        detector="SI",
+        source="event_trace",
+        event_id=1,
+        si_side="upstream_front",
+        si_index=3,
+    )
+
+    assert payload["session"]["detector"] == "SI"
+    assert payload["session"]["traceId"] == 3
+    first = payload["trace"]
+    assert first["detector"] == "SI"
+    assert (first["eventId"], first["traceId"]) == (1, 3)
+    assert first["traceSelector"] == {
+        "kind": "si",
+        "side": "upstream_front",
+        "index": 3,
+    }
+    assert first["traceMetadata"] == {
+        "kind": "si",
+        "layer": 0,
+        "side": "front",
+        "strip": 103,
+    }
+    assert first["eventContext"]["current"]["selector"]["sideCounts"] == {
+        "upstream_front": 4,
+        "upstream_back": 2,
+        "downstream_front": 3,
+        "downstream_back": 0,
+    }
+    assert first["eventContext"]["previous"] is None
+    assert first["eventContext"]["next"]["eventId"] == 4
+
+    next_trace = service.next_trace()
+    assert (next_trace["eventId"], next_trace["traceId"]) == (1, 4)
+    assert next_trace["traceSelector"] == {
+        "kind": "si",
+        "side": "upstream_back",
+        "index": 0,
+    }
+    assert next_trace["traceMetadata"] == {
+        "kind": "si",
+        "layer": 0,
+        "side": "back",
+        "strip": 100,
+    }
+
+    next_event = service.next_event()
+    assert (next_event["eventId"], next_event["traceId"]) == (4, 2)
+    assert next_event["traceSelector"] == {
+        "kind": "si",
+        "side": "downstream_front",
+        "index": 1,
+    }
+    assert next_event["traceMetadata"] == {
+        "kind": "si",
+        "layer": 1,
+        "side": "front",
+        "strip": 101,
+    }
+    assert next_event["eventContext"]["previous"]["eventId"] == 1
+
+
+def test_direct_review_mode_supports_gagg_event_and_trace_navigation(tmp_path) -> None:
+    trace_path = tmp_path / "run_0018.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_gagg_sparse_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+
+    payload = service.set_session(
+        mode="review",
+        run=18,
+        detector="GAGG",
+        source="event_trace",
+        event_id=1,
+        gagg_layer=1,
+        gagg_index=24,
+    )
+
+    assert payload["session"]["detector"] == "GAGG"
+    assert payload["session"]["traceId"] == 24
+    first = payload["trace"]
+    assert first["detector"] == "GAGG"
+    assert first["eventTraceCount"] == 41
+    assert first["traceSelector"] == {
+        "kind": "gagg",
+        "layer": 1,
+        "index": 24,
+    }
+    assert first["traceMetadata"] == {
+        "kind": "gagg",
+        "layer": 0,
+        "index": 24,
+    }
+    assert first["eventContext"]["current"]["selector"]["layerCounts"] == {
+        "layer1": 25,
+        "layer2": 16,
+    }
+
+    next_trace = service.next_trace()
+    assert (next_trace["eventId"], next_trace["traceId"]) == (1, 25)
+    assert next_trace["traceSelector"] == {
+        "kind": "gagg",
+        "layer": 2,
+        "index": 0,
+    }
+    assert next_trace["traceMetadata"] == {
+        "kind": "gagg",
+        "layer": 1,
+        "index": 0,
+    }
+
+    next_event = service.next_event()
+    assert (next_event["eventId"], next_event["traceId"]) == (4, 25)
+    assert next_event["eventContext"]["previous"]["eventId"] == 1
 
 
 def test_review_mode_rejects_empty_selection(tmp_path) -> None:
@@ -378,6 +642,7 @@ def test_review_mode_supports_grouped_normal_filter(tmp_path) -> None:
     assert payload["session"] == {
         "mode": "review",
         "run": 7,
+        "detector": "ATTPC",
         "source": "label_set",
         "family": "normal",
         "label": "4+",
@@ -559,6 +824,7 @@ def test_service_bootstrap_uses_requested_default_run(tmp_path) -> None:
         assert bootstrap["session"] == {
             "mode": "label",
             "run": 6,
+            "detector": "ATTPC",
             "source": None,
             "family": None,
             "label": None,
@@ -697,6 +963,7 @@ def test_pointcloud_browse_supports_direct_and_labeled_sources(tmp_path) -> None
         assert direct["session"] == {
             "mode": "pointcloud",
             "run": 7,
+            "detector": "ATTPC",
             "source": "event_id",
             "family": None,
             "label": None,
@@ -718,6 +985,7 @@ def test_pointcloud_browse_supports_direct_and_labeled_sources(tmp_path) -> None
         assert labeled["session"] == {
             "mode": "pointcloud",
             "run": 7,
+            "detector": "ATTPC",
             "source": "label_set",
             "family": None,
             "label": "2",

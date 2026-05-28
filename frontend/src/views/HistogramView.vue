@@ -13,7 +13,18 @@
     <v-card class="control-card" rounded="xl">
       <v-card-text>
         <v-row dense>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="3">
+            <v-select
+              :items="detectorOptions"
+              item-title="title"
+              item-value="value"
+              label="Detector"
+              :model-value="store.state.selectedDetector"
+              variant="outlined"
+              @update:model-value="store.setSelectedDetector"
+            />
+          </v-col>
+          <v-col cols="12" md="3">
             <v-select
               :items="runOptions"
               item-title="title"
@@ -24,7 +35,7 @@
               @update:model-value="store.setSelectedRun"
             />
           </v-col>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="3">
             <v-select
               :items="phaseOptions"
               item-title="title"
@@ -35,7 +46,7 @@
               @update:model-value="store.setSelectedPhase"
             />
           </v-col>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="3">
             <v-select
               :items="metricOptions"
               item-title="title"
@@ -252,6 +263,7 @@
           <v-card-text>
             <ResultPlot
               :class="{ 'result-plot--all-traces': store.state.selectedMode === 'all' }"
+              :detector="store.state.histogram.detector || store.state.selectedDetector"
               :metric="store.state.histogram.metric"
               :series="series"
               :thresholds="store.state.histogram.thresholds || []"
@@ -308,10 +320,17 @@ const filterFileOptions = computed(() =>
   })),
 );
 
-const phaseOptions = [
-  { title: "Phase 1", value: "phase1" },
-  { title: "Phase 2", value: "phase2" },
+const detectorOptions = [
+  { title: "ATTPC", value: "ATTPC" },
+  { title: "IC", value: "IC" },
+  { title: "Si", value: "SI" },
+  { title: "GAGG", value: "GAGG" },
 ];
+
+const phaseOptions = computed(() => [
+  { title: "Phase 1", value: "phase1" },
+  { title: "Phase 2", value: "phase2", props: { disabled: store.state.selectedDetector !== "ATTPC" } },
+]);
 
 const metricOptions = computed(() => {
   if (store.state.selectedPhase === "phase2") {
@@ -320,6 +339,16 @@ const metricOptions = computed(() => {
       { title: "Line property", value: "line_property" },
       { title: "Coplanarity (λ₃/λ₁)", value: "coplanar" },
     ];
+  }
+  if (store.state.selectedDetector === "IC") {
+    return [
+      { title: "Amplitude", value: "amplitude" },
+      { title: "Time", value: "time" },
+      { title: "Baseline", value: "baseline" },
+    ];
+  }
+  if (store.state.selectedDetector === "SI" || store.state.selectedDetector === "GAGG") {
+    return [{ title: "Baseline", value: "baseline" }];
   }
   return [
     { title: "Amplitude", value: "amplitude" },
@@ -342,6 +371,9 @@ const selectedVariant = computed(() => {
 
 const variantOptions = computed(() => {
   if (store.state.selectedMetric === "bitflip") {
+    if (store.state.selectedDetector !== "ATTPC") {
+      return [];
+    }
     return [
       { title: "Baseline", value: "baseline" },
       { title: "Value", value: "value" },
@@ -350,6 +382,9 @@ const variantOptions = computed(() => {
     ];
   }
   if (store.state.selectedMetric === "saturation") {
+    if (store.state.selectedDetector !== "ATTPC") {
+      return [];
+    }
     return [
       { title: "Drop", value: "drop" },
       { title: "Plateau length", value: "length" },
@@ -359,6 +394,9 @@ const variantOptions = computed(() => {
 });
 
 const modeOptions = computed(() => {
+  if (store.state.selectedDetector !== "ATTPC") {
+    return [{ title: "All traces", value: "all", props: { disabled: false } }];
+  }
   const availability = store.getAvailability() as
     | Record<HistogramMetric, HistogramAvailabilityEntry>
     | null;

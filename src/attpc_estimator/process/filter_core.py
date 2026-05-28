@@ -53,6 +53,8 @@ class AmplitudeFilterCore:
     peak_separation: float = 50.0
     peak_prominence: float = 20.0
     peak_width: float = 50.0
+    peak_threshold: float = 0.0
+    rel_height: float = 0.95
 
     def __post_init__(self) -> None:
         if self.min_amplitude > self.max_amplitude:
@@ -64,6 +66,8 @@ class AmplitudeFilterCore:
             peak_separation=self.peak_separation,
             peak_prominence=self.peak_prominence,
             peak_width=self.peak_width,
+            peak_threshold=self.peak_threshold,
+            rel_height=self.rel_height,
         )
 
     def matches(

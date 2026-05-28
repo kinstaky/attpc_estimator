@@ -194,6 +194,94 @@ async function renderFrequencyPlot(root) {
   );
 }
 
+async function renderPeakPlot(root) {
+  if (!root || !props.trace) {
+    return;
+  }
+  const Plotly = await loadPlotly();
+  const analysis = props.trace.peakAnalysis || {
+    peakIndices: [],
+    leftIndices: [],
+    rightIndices: [],
+    peakCount: 0,
+  };
+  const traces = [
+    {
+      type: "scatter",
+      mode: "lines",
+      x: sampleIndices(props.trace.trace),
+      y: props.trace.trace,
+      line: {
+        color: "#174f40",
+        width: 2.2,
+      },
+      name: "Baseline removed",
+    },
+  ];
+  if (analysis.peakIndices.length > 0) {
+    traces.push({
+      type: "scatter",
+      mode: "markers",
+      x: analysis.peakIndices,
+      y: analysis.peakIndices.map((index) => props.trace.trace[index]),
+      marker: {
+        color: "#a84a24",
+        size: 9,
+      },
+      name: "Peaks",
+    });
+    traces.push({
+      type: "scatter",
+      mode: "markers",
+      x: analysis.leftIndices,
+      y: analysis.leftIndices.map((index) => props.trace.trace[index]),
+      marker: {
+        color: "#3b5ba9",
+        size: 8,
+        symbol: "diamond",
+      },
+      name: "Peak start",
+    });
+    traces.push({
+      type: "scatter",
+      mode: "markers",
+      x: analysis.rightIndices,
+      y: analysis.rightIndices.map((index) => props.trace.trace[index]),
+      marker: {
+        color: "#6a4c93",
+        size: 8,
+        symbol: "diamond-open",
+      },
+      name: "Peak end",
+    });
+  }
+  Plotly.react(
+    root,
+    traces,
+    {
+      ...baseLayout(),
+      title: {
+        text: `Peak Analysis<br><sup>${analysis.peakCount} peak${analysis.peakCount === 1 ? "" : "s"}</sup>`,
+        x: 0.02,
+        xanchor: "left",
+      },
+      legend: {
+        orientation: "h",
+        x: 1,
+        xanchor: "right",
+        y: 1.18,
+      },
+      xaxis: sampleAxis(props.trace.trace.length),
+      yaxis: {
+        title: "Amplitude",
+        zeroline: false,
+        gridcolor: "#e7dfcf",
+      },
+    },
+    defaultConfig(),
+  );
+}
+
 function clearRelayoutSyncHandlers() {
   primaryRoot.value?.removeAllListeners?.("plotly_relayout");
   secondaryRoot.value?.removeAllListeners?.("plotly_relayout");
@@ -393,6 +481,20 @@ async function renderPlots() {
     if (tertiaryRoot.value) {
       Plotly.purge(tertiaryRoot.value);
     }
+    return;
+  }
+
+  if (props.visualMode === "peak") {
+    curvatureRange = null;
+    await renderRawPlot(primaryRoot.value);
+    if (!secondaryRoot.value) {
+      return;
+    }
+    clearRelayoutSyncHandlers();
+    if (tertiaryRoot.value) {
+      Plotly.purge(tertiaryRoot.value);
+    }
+    await renderPeakPlot(secondaryRoot.value);
     return;
   }
 

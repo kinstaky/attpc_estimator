@@ -98,30 +98,31 @@ import { computed, ref } from "vue";
 
 import { useShellStore } from "../stores/shell";
 
-const { state } = useShellStore();
+const shell = useShellStore();
+const { state } = shell;
 const isRail = ref(true);
 
-const items = [
-  { to: "/", title: "Home", icon: "mdi-home-outline" },
-  {
-    title: "Label",
-    icon: "mdi-pencil-box-outline",
-    children: [
-      { to: "/label/trace", title: "Trace", icon: "mdi-waveform" },
-      { to: "/label/pointcloud", title: "Pointcloud", icon: "mdi-chart-bubble" },
-    ],
-  },
-  {
-    title: "Browse",
-    icon: "mdi-file-search-outline",
-    children: [
-      { to: "/browse/trace", title: "Trace", icon: "mdi-waveform" },
-      { to: "/browse/pointcloud", title: "Pointcloud", icon: "mdi-cube-outline" },
-    ],
-  },
-  { to: "/histograms", title: "Histograms", icon: "mdi-chart-box-outline" },
-  { to: "/mapping", title: "Mapping", icon: "mdi-vector-polygon" },
-];
+const items = computed(() => {
+  return [
+    { to: "/", title: "Home", icon: "mdi-home-outline" },
+    {
+      title: "Label",
+      icon: "mdi-pencil-box-outline",
+      children: [
+        { to: "/label/trace", title: "Trace", icon: "mdi-waveform" },
+      ],
+    },
+    {
+      title: "Browse",
+      icon: "mdi-file-search-outline",
+      children: [
+        { to: "/browse/trace", title: "Trace", icon: "mdi-waveform" },
+      ],
+    },
+    { to: "/mapping", title: "Mapping", icon: "mdi-grid" },
+    { to: "/histograms", title: "Histograms", icon: "mdi-chart-histogram" },
+  ];
+});
 
 const selectedRunLabel = computed(() => {
   if (state.selectedRun === null || state.selectedRun === undefined) {

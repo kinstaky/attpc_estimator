@@ -28,6 +28,12 @@ histogram = "attpc_estimator.cli.histogram:main"
 relabel = "attpc_estimator.cli.relabel:main"
 webui = "attpc_estimator.cli.webui:main"
 pointcloud = "attpc_estimator.pipeline.pointcloud:main"
+ion-chamber = "attpc_estimator.pipeline.ion_chamber:main"
+
+[project.optional-dependencies]
+map = []
+hist = []
+ic = []
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

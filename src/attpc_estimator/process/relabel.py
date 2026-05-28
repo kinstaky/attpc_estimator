@@ -41,6 +41,8 @@ def build_relabel_rows(
     peak_separation: float = 50.0,
     peak_prominence: float = 20.0,
     peak_width: float = 50.0,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
     bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
     bitflip_min_count: int = BITFLIP_FILTER_MIN_COUNT_DEFAULT,
     saturation_threshold: float = SATURATION_THRESHOLD_DEFAULT,
@@ -87,6 +89,8 @@ def build_relabel_rows(
                 peak_separation=peak_separation,
                 peak_prominence=peak_prominence,
                 peak_width=peak_width,
+                peak_threshold=peak_threshold,
+                rel_height=rel_height,
             )
             batch_new_labels = [
                 _relabel_noise(old_label=old_label, amplitude=float(amplitude))

@@ -14,6 +14,7 @@ import type {
   SessionResponse,
   StrangeLabel,
   TracePayload,
+  DetectorName,
 } from "./types";
 
 interface ErrorBody {
@@ -30,6 +31,19 @@ interface LabelAssignRequest {
 interface CreateStrangeLabelRequest {
   name: string;
   shortcutKey: string;
+}
+
+export interface EventTraceReviewSelection {
+  run: number;
+  eventId: number;
+  detector?: DetectorName;
+  traceId?: number | null;
+  siSide?: "upstream_front" | "upstream_back" | "downstream_front" | "downstream_back" | null;
+  siIndex?: number | null;
+  gaggLayer?: number | null;
+  gaggIndex?: number | null;
+  filterItem?: "none" | "max" | null;
+  filterValue?: number | null;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -169,16 +183,21 @@ export function setFilterReviewSession(filterFile: string): Promise<SessionRespo
 }
 
 export function setEventTraceReviewSession(
-  run: number,
-  eventId: number,
-  traceId: number,
+  selection: EventTraceReviewSelection,
 ): Promise<SessionResponse> {
   return setSession({
     mode: "review",
-    run,
+    run: selection.run,
+    detector: selection.detector ?? "ATTPC",
     source: "event_trace",
-    eventId,
-    traceId,
+    eventId: selection.eventId,
+    traceId: selection.traceId ?? null,
+    siSide: selection.siSide ?? null,
+    siIndex: selection.siIndex ?? null,
+    gaggLayer: selection.gaggLayer ?? null,
+    gaggIndex: selection.gaggIndex ?? null,
+    filterItem: selection.filterItem ?? null,
+    filterValue: selection.filterValue ?? null,
   });
 }
 
@@ -231,6 +250,7 @@ export function getHistogram(
   metric: HistogramMetric,
   mode: "all" | "labeled" | "filtered",
   run: number,
+  detector: DetectorName = "ATTPC",
   variant: HistogramVariant | "" = "",
   filterFile = "",
   veto = false,
@@ -239,6 +259,7 @@ export function getHistogram(
     metric,
     mode,
     run: String(run),
+    detector,
   });
   if (variant) {
     params.set("variant", variant);
@@ -257,8 +278,9 @@ export function createHistogramJob(
   mode: "filtered",
   run: number,
   variant: HistogramVariant | "" = "",
-  filterFile: string,
+  filterFile = "",
   veto = false,
+  detector: DetectorName = "ATTPC",
 ): Promise<HistogramJobCreateResponse> {
   return request<HistogramJobCreateResponse>("/api/histograms/jobs", {
     method: "POST",
@@ -266,6 +288,7 @@ export function createHistogramJob(
       metric,
       mode,
       run,
+      detector,
       variant: variant || undefined,
       filterFile,
       veto,

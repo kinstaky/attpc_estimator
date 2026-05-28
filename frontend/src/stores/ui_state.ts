@@ -6,8 +6,6 @@ import type { UiStatePayload } from "../types";
 import { useHistogramStore } from "./histograms";
 import { useLabelStore } from "./label";
 import { useMappingStore } from "./mapping";
-import { usePointcloudLabelStore } from "./pointcloud_label";
-import { usePointcloudStore } from "./pointcloud";
 import { useReviewStore } from "./review";
 import { useShellStore } from "./shell";
 
@@ -18,14 +16,23 @@ function shouldRestoreRoute(): boolean {
   return router.currentRoute.value.fullPath === "/";
 }
 
+export async function normalizeCurrentRoute(): Promise<void> {
+  const current = router.currentRoute.value.fullPath;
+  if (
+    current.startsWith("/pointcloud")
+    || current.startsWith("/label/pointcloud")
+    || current.startsWith("/browse/pointcloud")
+  ) {
+    await router.replace("/");
+  }
+}
+
 export async function hydrateUiState(payload: UiStatePayload | null | undefined): Promise<void> {
   const shell = useShellStore();
   const label = useLabelStore();
   const review = useReviewStore();
   const histograms = useHistogramStore();
   const mapping = useMappingStore();
-  const pointcloud = usePointcloudStore();
-  const pointcloudLabel = usePointcloudLabelStore();
 
   if (!payload) {
     return;
@@ -36,21 +43,24 @@ export async function hydrateUiState(payload: UiStatePayload | null | undefined)
   review.applyUiState(payload.review);
   histograms.applyUiState(payload.histograms);
   mapping.applyUiState(payload.mapping);
-  pointcloud.applyUiState(payload.pointcloud);
-  pointcloudLabel.applyUiState(payload.pointcloudLabel);
 
+  const routeDisabledInTraceOnly = Boolean(
+    payload.route?.startsWith("/pointcloud")
+    || payload.route?.startsWith("/label/pointcloud")
+    || payload.route?.startsWith("/browse/pointcloud"),
+  );
   const normalizedRoute = payload.route?.startsWith("/review")
     ? payload.route.replace("/review", "/browse/trace")
-    : payload.route?.startsWith("/pointcloud")
-      ? payload.route.replace("/pointcloud", "/browse/pointcloud")
+    : routeDisabledInTraceOnly
+      ? "/"
       : payload.route;
-
-  if (normalizedRoute?.split("?", 1)[0] === "/histograms") {
-    await histograms.init();
-  }
 
   if (shouldRestoreRoute() && normalizedRoute && normalizedRoute !== router.currentRoute.value.path) {
     await router.replace(normalizedRoute);
+  }
+
+  if (router.currentRoute.value.path === "/histograms") {
+    await histograms.loadHistogram();
   }
 }
 
@@ -60,8 +70,6 @@ export function snapshotUiState(): UiStatePayload {
   const review = useReviewStore();
   const histograms = useHistogramStore();
   const mapping = useMappingStore();
-  const pointcloud = usePointcloudStore();
-  const pointcloudLabel = usePointcloudLabelStore();
 
   return {
     route: router.currentRoute.value.fullPath,
@@ -72,8 +80,6 @@ export function snapshotUiState(): UiStatePayload {
     review: review.serializeUiState(),
     histograms: histograms.serializeUiState(),
     mapping: mapping.serializeUiState(),
-    pointcloud: pointcloud.serializeUiState(),
-    pointcloudLabel: pointcloudLabel.serializeUiState(),
   };
 }
 

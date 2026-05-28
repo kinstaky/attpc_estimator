@@ -27,6 +27,7 @@ from ..process.line_property import (
 )
 from ..process.saturation import build_labeled_saturation_histograms, build_saturation_histograms
 from ..storage.run_paths import format_run_id, histogram_dir, resolve_run_file
+from ..utils.trace_data import DETECTOR_ATTPC, DETECTOR_IC, normalize_detector
 from .config import (
     bool_argument_config_kwargs,
     parse_run,
@@ -48,7 +49,7 @@ class OptionSpec:
     boolean: bool = False
 
 
-ROOT_ALLOWED_KEYS = {"trace_path", "workspace", "run"}
+ROOT_ALLOWED_KEYS = {"trace_path", "workspace", "run", "detector"}
 ROOT_POINTCLOUD_ALLOWED_KEYS = {"workspace", "run"}
 
 TRACE_PATH_OPTION = OptionSpec(
@@ -72,10 +73,16 @@ RUN_OPTION = OptionSpec(
     config_key=("run",),
     value_type=parse_run,
 )
+DETECTOR_OPTION = OptionSpec(
+    flags=("--detector",),
+    help="Detector to process: ATTPC or IC. Defaults to ATTPC.",
+    config_key=("detector",),
+    value_type=str,
+)
 BASELINE_WINDOW_SCALE_OPTION = OptionSpec(
     flags=("--baseline-window-scale",),
     help="Baseline-removal filter scale used before processing",
-    config_table="baseline",
+    config_table="attpc.baseline",
     config_key=("fft_window_scale",),
     value_type=float,
     dest="baseline_window_scale",
@@ -83,39 +90,47 @@ BASELINE_WINDOW_SCALE_OPTION = OptionSpec(
 AMPLITUDE_SEPARATION_OPTION = OptionSpec(
     flags=("--peak-separation",),
     help="Minimum separation between peaks",
-    config_table="amplitude",
-    config_key=("separation", "peak_separation"),
+    config_table="attpc.amplitude",
+    config_key=("peak_separation",),
     value_type=float,
     dest="peak_separation",
 )
 AMPLITUDE_PROMINENCE_OPTION = OptionSpec(
     flags=("--peak-prominence",),
     help="Prominence of peaks",
-    config_table="amplitude",
-    config_key=("prominence", "peak_prominence"),
+    config_table="attpc.amplitude",
+    config_key=("peak_prominence",),
     value_type=float,
     dest="peak_prominence",
 )
 AMPLITUDE_WIDTH_OPTION = OptionSpec(
     flags=("--peak-width",),
     help="Maximum width of peaks",
-    config_table="amplitude",
-    config_key=("max_width", "peak_width"),
+    config_table="attpc.amplitude",
+    config_key=("peak_width",),
     value_type=float,
     dest="peak_width",
 )
-AMPLITUDE_LABELED_OPTION = OptionSpec(
-    flags=("--labeled",),
-    help="Process only labeled traces for the selected run and save one histogram per label",
-    config_table="amplitude",
-    config_key=("labeled",),
-    dest="labeled",
-    boolean=True,
+AMPLITUDE_THRESHOLD_OPTION = OptionSpec(
+    flags=("--peak-threshold",),
+    help="Minimum peak amplitude",
+    config_table="attpc.amplitude",
+    config_key=("peak_threshold",),
+    value_type=float,
+    dest="peak_threshold",
+)
+AMPLITUDE_REL_HEIGHT_OPTION = OptionSpec(
+    flags=("--peak-rel-height",),
+    help="Relative height used when measuring peak width",
+    config_table="attpc.amplitude",
+    config_key=("rel_height",),
+    value_type=float,
+    dest="peak_rel_height",
 )
 BASELINE_LABELED_OPTION = OptionSpec(
     flags=("--labeled",),
     help="Process only labeled traces for the selected run and save one histogram per label",
-    config_table="baseline",
+    config_table="attpc.baseline",
     config_key=("labeled",),
     dest="labeled",
     boolean=True,
@@ -123,7 +138,7 @@ BASELINE_LABELED_OPTION = OptionSpec(
 CDF_BASELINE_WINDOW_SCALE_OPTION = OptionSpec(
     flags=("--baseline-window-scale",),
     help="Baseline-removal filter scale used before taking the FFT",
-    config_table="cdf",
+    config_table="attpc.cdf",
     config_key=("baseline_window_scale",),
     value_type=float,
     dest="baseline_window_scale",
@@ -131,7 +146,7 @@ CDF_BASELINE_WINDOW_SCALE_OPTION = OptionSpec(
 CDF_LABELED_OPTION = OptionSpec(
     flags=("--labeled",),
     help="Build one CDF histogram per trace label for the selected run",
-    config_table="cdf",
+    config_table="attpc.cdf",
     config_key=("labeled",),
     dest="labeled",
     boolean=True,
@@ -139,7 +154,7 @@ CDF_LABELED_OPTION = OptionSpec(
 BITFLIP_BASELINE_OPTION = OptionSpec(
     flags=("--baseline",),
     help="Absolute second-derivative threshold used to classify baseline points",
-    config_table="bitflip",
+    config_table="attpc.bitflip",
     config_key=("baseline",),
     value_type=float,
     dest="baseline",
@@ -147,7 +162,7 @@ BITFLIP_BASELINE_OPTION = OptionSpec(
 BITFLIP_LABELED_OPTION = OptionSpec(
     flags=("--labeled",),
     help="Process only labeled traces for the selected run and save one histogram per label",
-    config_table="bitflip",
+    config_table="attpc.bitflip",
     config_key=("labeled",),
     dest="labeled",
     boolean=True,
@@ -155,14 +170,14 @@ BITFLIP_LABELED_OPTION = OptionSpec(
 SATURATION_THRESHOLD_OPTION = OptionSpec(
     flags=("--threshold",),
     help="Minimum trace maximum required before evaluating a saturation plateau",
-    config_table="saturation",
+    config_table="attpc.saturation",
     config_key=("threshold",),
     value_type=float,
 )
 SATURATION_DROP_THRESHOLD_OPTION = OptionSpec(
     flags=("--drop-threshold",),
     help="Drop threshold D used when measuring plateau length",
-    config_table="saturation",
+    config_table="attpc.saturation",
     config_key=("drop_threshold",),
     value_type=float,
     dest="drop_threshold",
@@ -170,7 +185,7 @@ SATURATION_DROP_THRESHOLD_OPTION = OptionSpec(
 SATURATION_WINDOW_RADIUS_OPTION = OptionSpec(
     flags=("--window-radius",),
     help="Radius of the local window used when accumulating drop-from-maximum statistics",
-    config_table="saturation",
+    config_table="attpc.saturation",
     config_key=("window_radius",),
     value_type=int,
     dest="window_radius",
@@ -178,7 +193,7 @@ SATURATION_WINDOW_RADIUS_OPTION = OptionSpec(
 SATURATION_LABELED_OPTION = OptionSpec(
     flags=("--labeled",),
     help="Process only labeled traces for the selected run and save one histogram per label",
-    config_table="saturation",
+    config_table="attpc.saturation",
     config_key=("labeled",),
     dest="labeled",
     boolean=True,
@@ -257,14 +272,16 @@ def main(argv: list[str] | None = None) -> None:
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     config_path, payload = parse_toml_config(argv)
+    root_values = root_config_values(payload, allowed_keys=ROOT_ALLOWED_KEYS)
+    root_values.setdefault("detector", DETECTOR_ATTPC)
     parser = argparse.ArgumentParser(description="Compute histogram artifacts")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    _build_amplitude_parser(subparsers, config_path, payload)
-    _build_baseline_parser(subparsers, config_path, payload)
-    _build_cdf_parser(subparsers, config_path, payload)
-    _build_bitflip_parser(subparsers, config_path, payload)
-    _build_saturation_parser(subparsers, config_path, payload)
+    _build_amplitude_parser(subparsers, config_path, {**payload, **root_values})
+    _build_baseline_parser(subparsers, config_path, {**payload, **root_values})
+    _build_cdf_parser(subparsers, config_path, {**payload, **root_values})
+    _build_bitflip_parser(subparsers, config_path, {**payload, **root_values})
+    _build_saturation_parser(subparsers, config_path, {**payload, **root_values})
     _build_coplanar_parser(subparsers, config_path, payload)
     _build_line_distance_parser(subparsers, config_path, payload)
     _build_line_property_parser(subparsers, config_path, payload)
@@ -328,13 +345,20 @@ def _build_amplitude_parser(subparsers: argparse._SubParsersAction[argparse.Argu
         TRACE_PATH_OPTION,
         WORKSPACE_OPTION,
         RUN_OPTION,
+        DETECTOR_OPTION,
         BASELINE_WINDOW_SCALE_OPTION,
         AMPLITUDE_SEPARATION_OPTION,
         AMPLITUDE_PROMINENCE_OPTION,
         AMPLITUDE_WIDTH_OPTION,
-        AMPLITUDE_LABELED_OPTION,
+        AMPLITUDE_THRESHOLD_OPTION,
+        AMPLITUDE_REL_HEIGHT_OPTION,
     ):
         _add_config_option(parser, payload, spec)
+    parser.add_argument(
+        "--labeled",
+        action="store_true",
+        help="Process only labeled traces for the selected run and save one histogram per label",
+    )
     parser.set_defaults(handler=_run_amplitude)
 
 
@@ -345,6 +369,7 @@ def _build_baseline_parser(subparsers: argparse._SubParsersAction[argparse.Argum
         TRACE_PATH_OPTION,
         WORKSPACE_OPTION,
         RUN_OPTION,
+        DETECTOR_OPTION,
         BASELINE_WINDOW_SCALE_OPTION,
         BASELINE_LABELED_OPTION,
     ):
@@ -359,6 +384,7 @@ def _build_cdf_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         TRACE_PATH_OPTION,
         WORKSPACE_OPTION,
         RUN_OPTION,
+        DETECTOR_OPTION,
         CDF_BASELINE_WINDOW_SCALE_OPTION,
         CDF_LABELED_OPTION,
     ):
@@ -373,6 +399,7 @@ def _build_bitflip_parser(subparsers: argparse._SubParsersAction[argparse.Argume
         TRACE_PATH_OPTION,
         WORKSPACE_OPTION,
         RUN_OPTION,
+        DETECTOR_OPTION,
         BASELINE_WINDOW_SCALE_OPTION,
         BITFLIP_BASELINE_OPTION,
         BITFLIP_LABELED_OPTION,
@@ -388,6 +415,7 @@ def _build_saturation_parser(subparsers: argparse._SubParsersAction[argparse.Arg
         TRACE_PATH_OPTION,
         WORKSPACE_OPTION,
         RUN_OPTION,
+        DETECTOR_OPTION,
         BASELINE_WINDOW_SCALE_OPTION,
         SATURATION_THRESHOLD_OPTION,
         SATURATION_DROP_THRESHOLD_OPTION,
@@ -443,6 +471,7 @@ def _build_line_property_parser(subparsers: argparse._SubParsersAction[argparse.
 
 
 def _run_amplitude(args: argparse.Namespace) -> None:
+    detector = normalize_detector(args.detector)
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
     output_root = histogram_dir(workspace)
@@ -450,6 +479,8 @@ def _run_amplitude(args: argparse.Namespace) -> None:
     run_name = format_run_id(run_id)
 
     if args.labeled:
+        if detector == DETECTOR_IC:
+            raise SystemExit("IC amplitude histograms only support all-trace mode")
         with tqdm_reporter("Processing labeled pad traces") as progress:
             payload = build_labeled_amplitude_histograms(
                 trace_path=trace_root,
@@ -459,6 +490,8 @@ def _run_amplitude(args: argparse.Namespace) -> None:
                 peak_separation=args.peak_separation,
                 peak_prominence=args.peak_prominence,
                 peak_width=args.peak_width,
+                peak_threshold=args.peak_threshold,
+                rel_height=args.peak_rel_height,
                 progress=progress,
             )
         output_path = output_root / f"run_{run_name}_labeled_amp.npz"
@@ -488,9 +521,12 @@ def _run_amplitude(args: argparse.Namespace) -> None:
             peak_separation=args.peak_separation,
             peak_prominence=args.peak_prominence,
             peak_width=args.peak_width,
+            peak_threshold=args.peak_threshold,
+            rel_height=args.peak_rel_height,
             progress=progress,
+            detector=detector,
         )
-    output_path = output_root / f"run_{run_name}_amp.npy"
+    output_path = output_root / f"run_{run_name}{_detector_suffix(detector)}_amp.npy"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, histogram)
     print(f"saved amplitude histogram with shape {histogram.shape} to {output_path}")
@@ -498,6 +534,7 @@ def _run_amplitude(args: argparse.Namespace) -> None:
 
 
 def _run_baseline(args: argparse.Namespace) -> None:
+    detector = normalize_detector(args.detector)
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
     output_root = histogram_dir(workspace)
@@ -505,6 +542,8 @@ def _run_baseline(args: argparse.Namespace) -> None:
     run_name = format_run_id(run_id)
 
     if args.labeled:
+        if detector == DETECTOR_IC:
+            raise SystemExit("IC baseline histograms only support all-trace mode")
         with tqdm_reporter("Processing labeled pad traces") as progress:
             payload = build_labeled_baseline_histograms(
                 trace_path=trace_root,
@@ -539,8 +578,9 @@ def _run_baseline(args: argparse.Namespace) -> None:
             trace_file_path=trace_file_path,
             baseline_window_scale=args.baseline_window_scale,
             progress=progress,
+            detector=detector,
         )
-    output_path = output_root / f"run_{run_name}_baseline.npz"
+    output_path = output_root / f"run_{run_name}{_detector_suffix(detector)}_baseline.npz"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         output_path,
@@ -553,6 +593,7 @@ def _run_baseline(args: argparse.Namespace) -> None:
 
 
 def _run_cdf(args: argparse.Namespace) -> None:
+    detector = normalize_detector(args.detector)
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
     output_root = histogram_dir(workspace)
@@ -560,6 +601,8 @@ def _run_cdf(args: argparse.Namespace) -> None:
     run_name = format_run_id(run_id)
 
     if args.labeled:
+        if detector == DETECTOR_IC:
+            raise SystemExit("IC CDF histograms only support all-trace mode")
         with tqdm_reporter("Processing labeled pad traces") as progress:
             payload = build_labeled_cdf_histograms(
                 trace_path=trace_root,
@@ -593,8 +636,9 @@ def _run_cdf(args: argparse.Namespace) -> None:
             trace_file_path=trace_file_path,
             baseline_window_scale=args.baseline_window_scale,
             progress=progress,
+            detector=detector,
         )
-    output_path = output_root / f"run_{run_name}_cdf.npy"
+    output_path = output_root / f"run_{run_name}{_detector_suffix(detector)}_cdf.npy"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, histogram)
     print(f"saved CDF histogram with shape {histogram.shape} to {output_path}")
@@ -603,6 +647,8 @@ def _run_cdf(args: argparse.Namespace) -> None:
 
 
 def _run_bitflip(args: argparse.Namespace) -> None:
+    if normalize_detector(args.detector) == DETECTOR_IC:
+        raise SystemExit("IC bitflip histograms are not supported")
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
     output_root = histogram_dir(workspace)
@@ -664,6 +710,8 @@ def _run_bitflip(args: argparse.Namespace) -> None:
 
 
 def _run_saturation(args: argparse.Namespace) -> None:
+    if normalize_detector(args.detector) == DETECTOR_IC:
+        raise SystemExit("IC saturation histograms are not supported")
     trace_root = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
     output_root = histogram_dir(workspace)
@@ -816,3 +864,7 @@ def _run_line_property(args: argparse.Namespace) -> None:
     print(f"saved line-property histograms to {output_path}")
     print(f"processed events: {int(np.asarray(payload['processed_events']).item())}")
     print(f"accepted lines: {int(np.asarray(payload['accepted_line_total']).item())}")
+
+
+def _detector_suffix(detector: str) -> str:
+    return "" if detector == DETECTOR_ATTPC else "_ic"

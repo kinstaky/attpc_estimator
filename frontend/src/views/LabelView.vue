@@ -40,6 +40,7 @@
             <v-btn value="raw">Raw</v-btn>
             <v-btn value="cdf">CDF</v-btn>
             <v-btn value="curvature">Curvature</v-btn>
+            <v-btn value="peak">Peak</v-btn>
           </v-btn-toggle>
         </div>
       </div>

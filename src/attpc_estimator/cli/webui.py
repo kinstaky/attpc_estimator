@@ -14,8 +14,8 @@ from ..process.line_pipeline import MergeConfig, RansacConfig
 from ..service.estimator import EstimatorService
 from .config import (
     argument_config_kwargs,
-    parse_run,
     parse_toml_config,
+    parse_run,
     root_config_values,
     table_config_values,
 )
@@ -37,6 +37,12 @@ def main() -> None:
         "trace_path": trace_path,
         "workspace": workspace,
         "baseline_window_scale": args.baseline_window_scale,
+        "ic_baseline_window_scale": args.ic_baseline_window_scale,
+        "peak_separation": args.peak_separation,
+        "peak_prominence": args.peak_prominence,
+        "peak_width": args.peak_width,
+        "peak_threshold": args.peak_threshold,
+        "peak_rel_height": args.peak_rel_height,
         "bitflip_baseline_threshold": args.bitflip_baseline,
         "saturation_threshold": args.saturation_threshold,
         "saturation_drop_threshold": args.saturation_drop_threshold,
@@ -93,19 +99,35 @@ def _parse_args() -> argparse.Namespace:
     )
     baseline_config = table_config_values(
         payload,
-        table="baseline",
+        table="attpc.baseline",
         allowed_keys={"fft_window_scale"},
+    )
+    ic_baseline_config = table_config_values(
+        payload,
+        table="ic.baseline",
+        allowed_keys={"fft_window_scale"},
+    )
+    amplitude_config = table_config_values(
+        payload,
+        table="attpc.amplitude",
+        allowed_keys={
+            "peak_separation",
+            "peak_prominence",
+            "peak_width",
+            "peak_threshold",
+            "rel_height",
+        },
     )
     bitflip_config = table_config_values(
         payload,
-        table="bitflip",
+        table="attpc.bitflip",
         allowed_keys={
             "baseline",
         },
     )
     saturation_config = table_config_values(
         payload,
-        table="saturation",
+        table="attpc.saturation",
         allowed_keys={"threshold", "drop_threshold", "window_radius"},
     )
     pointcloud_config = table_config_values(
@@ -168,6 +190,42 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         **argument_config_kwargs(baseline_config, "fft_window_scale"),
         help="Baseline-removal filter scale used for review/label trace preprocessing",
+    )
+    parser.add_argument(
+        "--ic-baseline-window-scale",
+        type=float,
+        default=ic_baseline_config.get("fft_window_scale", baseline_config.get("fft_window_scale")),
+        help="Baseline-removal filter scale used for IC trace preprocessing",
+    )
+    parser.add_argument(
+        "--peak-separation",
+        type=float,
+        default=amplitude_config.get("peak_separation", 50.0),
+        help="Minimum separation between peaks for filtered amplitude histograms",
+    )
+    parser.add_argument(
+        "--peak-prominence",
+        type=float,
+        default=amplitude_config.get("peak_prominence", 20.0),
+        help="Prominence of peaks for filtered amplitude histograms",
+    )
+    parser.add_argument(
+        "--peak-width",
+        type=float,
+        default=amplitude_config.get("peak_width", 50.0),
+        help="Maximum peak width for filtered amplitude histograms",
+    )
+    parser.add_argument(
+        "--peak-threshold",
+        type=float,
+        default=amplitude_config.get("peak_threshold", 0.0),
+        help="Minimum peak amplitude for filtered amplitude histograms",
+    )
+    parser.add_argument(
+        "--peak-rel-height",
+        type=float,
+        default=amplitude_config.get("rel_height", 0.95),
+        help="Relative height used when measuring filtered amplitude peak width",
     )
     parser.add_argument(
         "--bitflip-baseline",

@@ -3,6 +3,7 @@ import { computed, reactive } from "vue";
 import { createHistogramJob, getHistogram, histogramJobSocketUrl } from "../api";
 import { useShellStore } from "./shell";
 import type {
+  DetectorName,
   HistogramsUiState,
   HistogramJobMessage,
   HistogramJobProgress,
@@ -20,6 +21,7 @@ type ScaleMode = "linear" | "log";
 type CdfRenderMode = "2d" | "projection";
 
 interface HistogramState {
+  selectedDetector: DetectorName;
   selectedPhase: HistogramPhase;
   selectedRun: number | null;
   selectedMetric: HistogramMetric;
@@ -40,6 +42,7 @@ interface HistogramState {
 }
 
 const state = reactive<HistogramState>({
+  selectedDetector: "ATTPC",
   selectedPhase: "phase1",
   selectedRun: null,
   selectedMetric: "cdf",
@@ -68,6 +71,10 @@ const PHASE_METRICS: Record<HistogramPhase, HistogramMetric[]> = {
   phase1: ["amplitude", "baseline", "bitflip", "cdf", "saturation"],
   phase2: ["line_distance", "line_property", "coplanar"],
 };
+
+const IC_PHASE1_METRICS: HistogramMetric[] = ["amplitude", "time", "baseline"];
+const SI_PHASE1_METRICS: HistogramMetric[] = ["baseline"];
+const GAGG_PHASE1_METRICS: HistogramMetric[] = ["baseline"];
 
 const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "line_property", "coplanar"]);
 
@@ -119,6 +126,9 @@ function ensureInitialized(): void {
 }
 
 function currentVariant(): HistogramVariant | "" {
+  if (state.selectedDetector !== "ATTPC") {
+    return "";
+  }
   if (state.selectedMetric === "bitflip") {
     return state.selectedBitflipVariant;
   }
@@ -126,6 +136,19 @@ function currentVariant(): HistogramVariant | "" {
     return state.selectedSaturationVariant;
   }
   return "";
+}
+
+function currentPhaseMetrics(phase: HistogramPhase = state.selectedPhase): HistogramMetric[] {
+  if (state.selectedDetector === "IC") {
+    return phase === "phase1" ? IC_PHASE1_METRICS : [];
+  }
+  if (state.selectedDetector === "SI") {
+    return phase === "phase1" ? SI_PHASE1_METRICS : [];
+  }
+  if (state.selectedDetector === "GAGG") {
+    return phase === "phase1" ? GAGG_PHASE1_METRICS : [];
+  }
+  return PHASE_METRICS[phase];
 }
 
 function metricPhase(metric: HistogramMetric): HistogramPhase {
@@ -137,10 +160,27 @@ function getAvailability() {
   if (state.selectedRun === null || !shell.state.bootstrap) {
     return null;
   }
+  if (state.selectedDetector !== "ATTPC") {
+    return shell.state.bootstrap.detectorHistogramAvailability?.[state.selectedDetector]?.[String(state.selectedRun)] || null;
+  }
   return shell.state.bootstrap.histogramAvailability?.[String(state.selectedRun)] || null;
 }
 
+function ensureDetectorMetricMode(): void {
+  if (state.selectedDetector === "ATTPC") {
+    return;
+  }
+  state.selectedPhase = "phase1";
+  const metrics = currentPhaseMetrics("phase1");
+  if (!metrics.includes(state.selectedMetric)) {
+    state.selectedMetric = metrics[0];
+  }
+  state.selectedMode = "all";
+  state.filteredPlotDirty = false;
+}
+
 function ensureModeAvailability(): void {
+  ensureDetectorMetricMode();
   const availability = getAvailability();
   if (!availability) {
     return;
@@ -191,6 +231,7 @@ async function loadHistogram(forceFiltered = false): Promise<void> {
         state.selectedMetric,
         state.selectedMode,
         state.selectedRun,
+        state.selectedDetector,
         currentVariant(),
         "",
         false,
@@ -230,6 +271,7 @@ async function loadFilteredHistogram(loadId: number): Promise<HistogramPayload> 
     currentVariant(),
     state.selectedHistogramFilter,
     state.selectedHistogramVeto,
+    state.selectedDetector,
   );
   if (loadId !== loadSequence) {
     throw new Error("stale histogram request");
@@ -319,6 +361,9 @@ async function setSelectedRun(run: number | string | null): Promise<void> {
 }
 
 async function setSelectedMetric(metric: HistogramMetric): Promise<void> {
+  if (!currentPhaseMetrics(metricPhase(metric)).includes(metric)) {
+    return;
+  }
   state.selectedPhase = metricPhase(metric);
   state.selectedMetric = metric;
   if (MODE_LOCKED_METRICS.has(metric)) {
@@ -329,8 +374,13 @@ async function setSelectedMetric(metric: HistogramMetric): Promise<void> {
 }
 
 async function setSelectedPhase(phase: HistogramPhase): Promise<void> {
+  if (state.selectedDetector !== "ATTPC" && phase !== "phase1") {
+    state.selectedPhase = "phase1";
+    await loadHistogram();
+    return;
+  }
   state.selectedPhase = phase;
-  const allowedMetrics = PHASE_METRICS[phase];
+  const allowedMetrics = currentPhaseMetrics(phase);
   if (!allowedMetrics.includes(state.selectedMetric)) {
     state.selectedMetric = allowedMetrics[0];
   }
@@ -359,6 +409,12 @@ async function setSelectedVariant(variant: HistogramVariant): Promise<void> {
 }
 
 async function setSelectedMode(mode: HistogramMode): Promise<void> {
+  if (state.selectedDetector !== "ATTPC") {
+    state.selectedMode = "all";
+    state.filteredPlotDirty = false;
+    await loadHistogram();
+    return;
+  }
   if (MODE_LOCKED_METRICS.has(state.selectedMetric)) {
     state.selectedMode = "all";
     return;
@@ -372,6 +428,15 @@ async function setSelectedMode(mode: HistogramMode): Promise<void> {
   if (mode !== "filtered") {
     state.filteredPlotDirty = false;
   }
+  await loadHistogram();
+}
+
+async function setSelectedDetector(detector: DetectorName): Promise<void> {
+  state.selectedDetector =
+    detector === "IC" || detector === "SI" || detector === "GAGG"
+      ? detector
+      : "ATTPC";
+  ensureDetectorMetricMode();
   await loadHistogram();
 }
 
@@ -463,6 +528,7 @@ export function useHistogramStore() {
     loadHistogram,
     plotFilteredHistogram,
     setSelectedRun,
+    setSelectedDetector,
     setSelectedPhase,
     setSelectedMetric,
     setSelectedVariant,
@@ -483,6 +549,7 @@ function applyUiState(payload: HistogramsUiState | null | undefined): void {
     return;
   }
   shouldRestoreHistogram = true;
+  state.selectedDetector = payload.selectedDetector || "ATTPC";
   state.selectedRun = payload.selectedRun;
   state.selectedPhase = payload.selectedPhase;
   state.selectedMetric = payload.selectedMetric;
@@ -503,6 +570,7 @@ function applyUiState(payload: HistogramsUiState | null | undefined): void {
 
 function serializeUiState(): HistogramsUiState {
   return {
+    selectedDetector: state.selectedDetector,
     selectedRun: state.selectedRun,
     selectedPhase: state.selectedPhase,
     selectedMetric: state.selectedMetric,

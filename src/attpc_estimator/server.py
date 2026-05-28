@@ -20,11 +20,6 @@ class LabelAssignRequest(BaseModel):
     label: str
 
 
-class PointcloudLabelAssignRequest(BaseModel):
-    eventId: int
-    label: str
-
-
 class CreateStrangeLabelRequest(BaseModel):
     name: str
     shortcutKey: str
@@ -33,27 +28,29 @@ class CreateStrangeLabelRequest(BaseModel):
 class SessionRequest(BaseModel):
     mode: str
     run: int | None = None
+    detector: str | None = None
     source: str | None = None
     family: str | None = None
     label: str | None = None
     filterFile: str | None = None
     eventId: int | None = None
     traceId: int | None = None
+    siSide: str | None = None
+    siIndex: int | None = None
+    gaggLayer: int | None = None
+    gaggIndex: int | None = None
+    filterItem: str | None = None
+    filterValue: float | None = None
 
 
 class HistogramJobRequest(BaseModel):
     metric: str
     mode: str
     run: int
+    detector: str | None = None
     variant: str | None = None
     filterFile: str | None = None
     veto: bool = False
-
-
-class PointcloudTraceRequest(BaseModel):
-    run: int
-    eventId: int
-    traceIds: list[int]
 
 
 class UiStateRequest(BaseModel):
@@ -106,12 +103,19 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
             return service.set_session(
                 mode=request.mode,
                 run=request.run,
+                detector=request.detector,
                 source=request.source,
                 family=request.family,
                 label=request.label,
                 filter_file=request.filterFile,
                 event_id=request.eventId,
                 trace_id=request.traceId,
+                si_side=request.siSide,
+                si_index=request.siIndex,
+                gagg_layer=request.gaggLayer,
+                gagg_index=request.gaggIndex,
+                filter_item=request.filterItem,
+                filter_value=request.filterValue,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -191,12 +195,14 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
         variant: str | None = None,
         filterFile: str | None = None,
         veto: bool = False,
+        detector: str | None = None,
     ) -> dict:
         try:
             return service.get_histogram(
                 metric=metric,
                 mode=mode,
                 run=run,
+                detector=detector,
                 variant=variant,
                 filter_file=filterFile,
                 veto=veto,
@@ -213,6 +219,7 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
                 metric=request.metric,
                 mode=request.mode,
                 run=request.run,
+                detector=request.detector,
                 variant=request.variant,
                 filter_file=request.filterFile,
                 veto=request.veto,
@@ -247,80 +254,6 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
                     return
         except WebSocketDisconnect:
             return
-
-    @router.get("/pointcloud/event")
-    def pointcloud_event(run: int, eventId: int) -> dict:
-        try:
-            return service.get_pointcloud_event(run=run, event_id=eventId)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.get("/pointcloud/current")
-    def current_pointcloud() -> dict:
-        try:
-            return service.current_pointcloud_event()
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/pointcloud/next")
-    def next_pointcloud() -> dict:
-        try:
-            return service.next_pointcloud_event()
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/pointcloud/previous")
-    def previous_pointcloud() -> dict:
-        try:
-            return service.previous_pointcloud_event()
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/pointcloud/traces")
-    def pointcloud_traces(request: PointcloudTraceRequest) -> dict:
-        try:
-            return service.get_pointcloud_traces(
-                run=request.run,
-                event_id=request.eventId,
-                trace_ids=request.traceIds,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.get("/pointcloud-label/current")
-    def current_pointcloud_label() -> dict:
-        try:
-            return service.current_pointcloud_label_event()
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/pointcloud-label/next")
-    def next_pointcloud_label() -> dict:
-        try:
-            return service.next_pointcloud_label_event()
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/pointcloud-label/previous")
-    def previous_pointcloud_label() -> dict:
-        try:
-            return service.previous_pointcloud_label_event()
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/pointcloud-label/assign")
-    def assign_pointcloud_label(request: PointcloudLabelAssignRequest) -> dict:
-        try:
-            return service.assign_pointcloud_label(
-                event_id=request.eventId,
-                label=request.label,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.post("/ui-state")
     def update_ui_state(request: UiStateRequest) -> dict:

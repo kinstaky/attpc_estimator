@@ -30,6 +30,7 @@ def write_hdf5_input(path: Path, trace_count: int = 20) -> None:
 
     with h5py.File(path, "w") as handle:
         events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
         events.attrs["min_event"] = 1
         events.attrs["max_event"] = 1
         events.attrs["bad_events"] = np.array([], dtype=np.int64)

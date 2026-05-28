@@ -35,6 +35,7 @@ def build_trace_cdf_histogram(
     baseline_window_scale: float = 20.0,
     thresholds: np.ndarray = CDF_THRESHOLDS,
     progress: ProgressReporter | None = None,
+    detector: str = "ATTPC",
 ) -> np.ndarray:
     histogram = np.zeros((len(thresholds), CDF_VALUE_BINS), dtype=np.int64)
 
@@ -48,6 +49,7 @@ def build_trace_cdf_histogram(
         baseline_window_scale=baseline_window_scale,
         handler=handle_batch,
         progress=progress,
+        detector=detector,
     )
     return histogram
 

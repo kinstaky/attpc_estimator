@@ -65,6 +65,7 @@ def write_run_file(path: Path, events: dict[int, list[np.ndarray]]) -> None:
     with h5py.File(path, "w") as handle:
         event_ids = sorted(events)
         group = handle.create_group("events")
+        group.attrs["version"] = "libattpc_merger:2.0"
         group.attrs["min_event"] = min(event_ids)
         group.attrs["max_event"] = max(event_ids)
         group.attrs["bad_events"] = np.asarray([], dtype=np.int64)
@@ -301,6 +302,10 @@ def test_relabel_main_noise_writes_rows_and_prints_noise_ratios(
             "20.0",
             "--peak-width",
             "50.0",
+            "--peak-threshold",
+            "0.0",
+            "--peak-rel-height",
+            "0.95",
             "--bitflip-baseline",
             "10.0",
             "--bitflip-min-count",
@@ -365,6 +370,10 @@ def test_relabel_main_oscillation_writes_rows_and_prints_oscillation_ratios(
             "20.0",
             "--peak-width",
             "50.0",
+            "--peak-threshold",
+            "0.0",
+            "--peak-rel-height",
+            "0.95",
             "--bitflip-baseline",
             "10.0",
             "--bitflip-min-count",
@@ -420,16 +429,18 @@ def test_relabel_main_zero_pads_integer_run_from_config_file(
                 'label = "noise"',
                 "baseline_window_scale = 10.0",
                 "",
-                "[amplitude]",
+                "[attpc.amplitude]",
                 "peak_separation = 50.0",
                 "peak_prominence = 20.0",
                 "peak_width = 50.0",
+                "peak_threshold = 0.0",
+                "rel_height = 0.95",
                 "",
-                "[bitflip]",
+                "[attpc.bitflip]",
                 "baseline = 10.0",
                 "min_count = 1",
                 "",
-                "[saturation]",
+                "[attpc.saturation]",
                 "threshold = 2000.0",
                 "drop_threshold = 10.0",
                 "window_radius = 16",
@@ -531,6 +542,10 @@ def test_relabel_main_saturation_writes_rows_and_prints_saturation_ratios(
             "20.0",
             "--peak-width",
             "50.0",
+            "--peak-threshold",
+            "0.0",
+            "--peak-rel-height",
+            "0.95",
             "--bitflip-baseline",
             "10.0",
             "--bitflip-min-count",
@@ -619,6 +634,10 @@ def test_find_peaks_main_labeled_writes_payload_npz(tmp_path, monkeypatch) -> No
             "20.0",
             "--peak-width",
             "50.0",
+            "--peak-threshold",
+            "0.0",
+            "--peak-rel-height",
+            "0.95",
             "--labeled",
         ],
     )
@@ -653,20 +672,21 @@ def test_find_peaks_main_zero_pads_integer_run_from_config_file(
                 f'workspace = "{workspace}"',
                 "run = 8",
                 "",
-                "[amplitude]",
-                "labeled = true",
+                "[attpc.amplitude]",
                 "peak_separation = 50.0",
                 "peak_prominence = 20.0",
                 "peak_width = 50.0",
+                "peak_threshold = 0.0",
+                "rel_height = 0.95",
                 "",
-                "[baseline]",
+                "[attpc.baseline]",
                 "fft_window_scale = 10.0",
             ]
         ),
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(sys, "argv", ["find-peak", "-c", str(config_path)])
+    monkeypatch.setattr(sys, "argv", ["find-peak", "-c", str(config_path), "--labeled"])
     find_peaks_main()
 
     output_path = workspace / "histograms" / "run_0008_labeled_amp.npz"

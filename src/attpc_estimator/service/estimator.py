@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-from pathlib import Path
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import h5py
@@ -21,47 +21,47 @@ from ..storage.run_paths import (
     webui_state_path,
 )
 from ..storage.webui_state import WebUiStateStore
-from .histograms import HistogramService
-from .labeling import (
-    RESERVED_SHORTCUTS,
-    labels_snapshot,
-    normalize_shortcut,
-    normal_summary,
-    pointcloud_summary,
+from ..utils.trace_data import (
+    DETECTOR_ATTPC,
+    DETECTOR_GAGG,
+    DETECTOR_IC,
+    DETECTOR_SI,
+    describe_trace_events,
+    normalize_detector,
 )
-from .pointcloud_browse import PointcloudBrowseSource
-from .pointcloud_label import PointcloudLabelSource
-from .pointcloud import PointcloudService
+from .histograms import HistogramService
+from .labeling import RESERVED_SHORTCUTS, labels_snapshot, normal_summary, normalize_shortcut
+
+# from .pointcloud_browse import PointcloudBrowseSource
+# from .pointcloud_label import PointcloudLabelSource
+# from .pointcloud import PointcloudService
 from .traces import DirectTraceSource, TraceSource
-from .traces.payload import serialize_trace_payload
-from ..utils.trace_data import describe_trace_events
+from .traces.payload import serialize_trace_metadata, serialize_trace_payload
 
 ReviewSource = Literal["label_set", "filter_file", "event_trace"]
-PointcloudBrowseSourceName = Literal["event_id", "label_set"]
-SessionMode = Literal[
-    "label",
-    "label_review",
-    "review",
-    "pointcloud_label",
-    "pointcloud_label_review",
-    "pointcloud",
-]
+SessionMode = Literal["label", "label_review", "review"]
 logger = logging.getLogger("attpc_estimator.estimator")
+
+
 @dataclass(slots=True)
 class SessionState:
     mode: SessionMode
     run: int | None
+    detector: str = DETECTOR_ATTPC
     source: str | None = None
     family: str | None = None
     label: str | None = None
     filter_file: str | None = None
     event_id: int | None = None
     trace_id: int | None = None
+    filter_item: str | None = None
+    filter_value: float | None = None
 
     def as_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "mode": self.mode,
             "run": self.run,
+            "detector": self.detector,
             "source": self.source,
             "family": self.family,
             "label": self.label,
@@ -69,6 +69,12 @@ class SessionState:
             "eventId": self.event_id,
             "traceId": self.trace_id,
         }
+        if self.source == "event_trace" and (
+            self.filter_item not in {None, "none"} or self.filter_value is not None
+        ):
+            payload["filterItem"] = self.filter_item
+            payload["filterValue"] = self.filter_value
+        return payload
 
 
 def default_ui_state() -> dict[str, Any]:
@@ -78,15 +84,19 @@ def default_ui_state() -> dict[str, Any]:
         "label": {"visualMode": "raw"},
         "review": {
             "source": "label_set",
+            "detector": DETECTOR_ATTPC,
             "run": None,
             "family": "normal",
             "label": "",
             "filterFile": "",
             "eventId": None,
             "traceId": None,
+            "filterItem": "none",
+            "filterValue": None,
             "visualMode": "cdf",
         },
         "histograms": {
+            "selectedDetector": DETECTOR_ATTPC,
             "selectedRun": None,
             "selectedPhase": "phase1",
             "selectedMetric": "cdf",
@@ -132,6 +142,12 @@ class EstimatorService:
         trace_path: Path,
         workspace: Path,
         baseline_window_scale: float = 10.0,
+        ic_baseline_window_scale: float | None = None,
+        peak_separation: float = 50.0,
+        peak_prominence: float = 20.0,
+        peak_width: float = 50.0,
+        peak_threshold: float = 0.0,
+        peak_rel_height: float = 0.95,
         bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
         saturation_threshold: float = 2000.0,
         saturation_drop_threshold: float = 10.0,
@@ -147,6 +163,16 @@ class EstimatorService:
         self.trace_path = trace_path
         self.workspace = workspace
         self.baseline_window_scale = baseline_window_scale
+        self.ic_baseline_window_scale = (
+            baseline_window_scale
+            if ic_baseline_window_scale is None
+            else float(ic_baseline_window_scale)
+        )
+        self.peak_separation = peak_separation
+        self.peak_prominence = peak_prominence
+        self.peak_width = peak_width
+        self.peak_threshold = peak_threshold
+        self.peak_rel_height = peak_rel_height
         self.bitflip_baseline_threshold = bitflip_baseline_threshold
         self.ransac_config = ransac_config
         self.merge_config = merge_config
@@ -159,27 +185,31 @@ class EstimatorService:
             trace_path=trace_path,
             workspace=workspace,
             baseline_window_scale=baseline_window_scale,
+            peak_separation=peak_separation,
+            peak_prominence=peak_prominence,
+            peak_width=peak_width,
+            peak_threshold=peak_threshold,
+            peak_rel_height=peak_rel_height,
             bitflip_baseline_threshold=bitflip_baseline_threshold,
             saturation_threshold=saturation_threshold,
             saturation_drop_threshold=saturation_drop_threshold,
             saturation_window_radius=saturation_window_radius,
+            ic_baseline_window_scale=self.ic_baseline_window_scale,
         )
-        self.pointcloud = PointcloudService(
-            trace_path=trace_path,
-            workspace=workspace,
-            baseline_window_scale=baseline_window_scale,
-            micromegas_time_bucket=pointcloud_micromegas_time_bucket,
-            window_time_bucket=pointcloud_window_time_bucket,
-            detector_length=pointcloud_detector_length,
-        )
-        self.pointcloud.validate_processing_configs()
+        # self.pointcloud = PointcloudService(
+        #     trace_path=trace_path,
+        #     workspace=workspace,
+        #     baseline_window_scale=baseline_window_scale,
+        #     micromegas_time_bucket=pointcloud_micromegas_time_bucket,
+        #     window_time_bucket=pointcloud_window_time_bucket,
+        #     detector_length=pointcloud_detector_length,
+        # )
+        # self.pointcloud.validate_processing_configs()
         self.ui_state_store = WebUiStateStore(webui_state_path(workspace))
         resolved_default_run = self._resolve_initial_run(default_run)
         self.session = SessionState(mode="label", run=resolved_default_run)
         self.ui_state = default_ui_state()
         self._sources: dict[tuple[Any, ...], TraceSource | DirectTraceSource] = {}
-        self._pointcloud_label_sources: dict[tuple[str, int], PointcloudLabelSource] = {}
-        self._pointcloud_sources: dict[tuple[Any, ...], PointcloudBrowseSource] = {}
         self._active_source_key: tuple[Any, ...] | None = None
         self._active_pointcloud_label_key: tuple[str, int] | None = None
         self._active_pointcloud_key: tuple[Any, ...] | None = None
@@ -189,13 +219,12 @@ class EstimatorService:
         for source in self._sources.values():
             source.close()
         self._sources.clear()
-        self._pointcloud_sources.clear()
-        self.pointcloud.close()
+        # self._pointcloud_sources.clear()
+        # self.pointcloud.close()
         self.repository.connection.close()
 
     def bootstrap_state(self) -> dict[str, Any]:
         histogram_bootstrap = self.histograms.bootstrap_state()
-        pointcloud_bootstrap = self.pointcloud.bootstrap_state()
         return {
             "appType": "merged",
             "workspace": str(self.workspace),
@@ -208,10 +237,13 @@ class EstimatorService:
             },
             "filterFiles": histogram_bootstrap["filterFiles"],
             "histogramAvailability": histogram_bootstrap["histogramAvailability"],
-            "pointcloudRuns": pointcloud_bootstrap["runs"],
-            "pointcloudEventRanges": pointcloud_bootstrap["eventRanges"],
+            "detectorHistogramAvailability": histogram_bootstrap[
+                "detectorHistogramAvailability"
+            ],
+            # # "pointcloudRuns": pointcloud_bootstrap["runs"],
+            # # "pointcloudEventRanges": pointcloud_bootstrap["eventRanges"],
             "normalSummary": normal_summary(self.repository),
-            "pointcloudSummary": pointcloud_summary(self.repository),
+            # "pointcloudSummary": pointcloud_summary(self.repository),
             "strangeSummary": self.repository.get_strange_counts(),
             "strangeLabels": self.repository.list_strange_labels(),
             "session": self.session.as_payload(),
@@ -223,97 +255,35 @@ class EstimatorService:
         *,
         mode: str,
         run: int | None = None,
+        detector: str | None = None,
         source: str | None = None,
         family: str | None = None,
         label: str | None = None,
         filter_file: str | None = None,
         event_id: int | None = None,
         trace_id: int | None = None,
+        si_side: str | None = None,
+        si_index: int | None = None,
+        gagg_layer: int | None = None,
+        gagg_index: int | None = None,
+        filter_item: str | None = None,
+        filter_value: float | None = None,
     ) -> dict[str, Any]:
+        resolved_detector = normalize_detector(detector)
+        if mode in {"pointcloud", "pointcloud_label", "pointcloud_label_review"}:
+            raise ValueError("pointcloud modes are disabled in the trace-only build")
         if mode == "pointcloud":
-            source_name: PointcloudBrowseSourceName = (
-                "label_set" if source == "label_set" else "event_id"
-            )
-            resolved_run = self._resolve_pointcloud_run(run)
-            if source_name == "label_set":
-                if label is not None and label not in {"0", "1", "2", "3", "4", "5", "6+"}:
-                    raise ValueError("pointcloud label filter must be one of 0, 1, 2, 3, 4, 5, 6+, or empty")
-                source_key = ("pointcloud", "label_set", resolved_run, label)
-                browse_source = self._get_or_create_pointcloud_source(source_key)
-                event_ref = (
-                    browse_source.set_current(int(event_id))
-                    if event_id is not None
-                    else browse_source.current_ref() or browse_source.next_ref()
-                )
-                self.session = SessionState(
-                    mode="pointcloud",
-                    run=resolved_run,
-                    source="label_set",
-                    label=label,
-                    event_id=event_ref.event_id,
-                )
-            else:
-                source_key = ("pointcloud", "event_id", resolved_run)
-                browse_source = self._get_or_create_pointcloud_source(source_key)
-                default_event_id = self.pointcloud._event_ranges[resolved_run][0]
-                event_ref = browse_source.set_current(
-                    int(event_id) if event_id is not None else int(default_event_id)
-                )
-                self.session = SessionState(
-                    mode="pointcloud",
-                    run=resolved_run,
-                    source="event_id",
-                    event_id=event_ref.event_id,
-                )
-            self._active_source_key = None
-            self._active_pointcloud_label_key = None
-            self._active_pointcloud_key = source_key
-            return {
-                "session": self.session.as_payload(),
-                "event": self._serialize_pointcloud_event(event_ref.run, event_ref.event_id),
-            }
+            raise ValueError("pointcloud modes are disabled in the trace-only build")
 
         if mode == "pointcloud_label":
-            resolved_run = self._resolve_pointcloud_run(run)
-            source_key = ("pointcloud_label", resolved_run)
-            source = self._get_or_create_pointcloud_label_source(source_key)
-            self._active_source_key = None
-            self._active_pointcloud_label_key = source_key
-            self._active_pointcloud_key = None
-            self.session = SessionState(mode="pointcloud_label", run=resolved_run)
-            event_ref = source.current_ref() or source.next_ref()
-            return {
-                "session": self.session.as_payload(),
-                "event": self._serialize_pointcloud_label_event(event_ref.run, event_ref.event_id),
-            }
+            raise ValueError("pointcloud modes are disabled in the trace-only build")
 
         if mode == "pointcloud_label_review":
-            resolved_run = self._resolve_pointcloud_run(run)
-            if label is not None and label not in {"0", "1", "2", "3", "4", "5", "6+"}:
-                raise ValueError("pointcloud review label must be one of 0, 1, 2, 3, 4, 5, 6+, or empty")
-            source_key = ("pointcloud_label_review", "label_set", resolved_run, label)
-            source = self._get_or_create_pointcloud_source(source_key)
-            event_ref = (
-                source.set_current(int(event_id))
-                if event_id is not None
-                else source.current_ref() or source.next_ref()
-            )
-            self._active_source_key = None
-            self._active_pointcloud_label_key = None
-            self._active_pointcloud_key = source_key
-            self.session = SessionState(
-                mode="pointcloud_label_review",
-                run=resolved_run,
-                source="label_set",
-                label=label,
-                event_id=event_ref.event_id,
-            )
-            return {
-                "session": self.session.as_payload(),
-                "event": self._serialize_pointcloud_label_event(event_ref.run, event_ref.event_id),
-            }
+            raise ValueError("pointcloud modes are disabled in the trace-only build")
 
         if mode == "label":
+            if resolved_detector != DETECTOR_ATTPC:
+                raise ValueError(f"{resolved_detector} trace labeling is not available")
             resolved_run = self._resolve_run(run)
             source_key = ("label", resolved_run)
             started = time.perf_counter()
@@ -328,7 +298,9 @@ class EstimatorService:
             self._active_source_key = source_key
             self._active_pointcloud_label_key = None
             self._active_pointcloud_key = None
-            self.session = SessionState(mode="label", run=resolved_run)
+            self.session = SessionState(
+                mode="label", run=resolved_run, detector=DETECTOR_ATTPC
+            )
             trace_started = time.perf_counter()
             trace_record = label_source.current_trace() or label_source.next_trace()
             self._debug(
@@ -345,6 +317,8 @@ class EstimatorService:
             }
 
         if mode == "label_review":
+            if resolved_detector != DETECTOR_ATTPC:
+                raise ValueError(f"{resolved_detector} label review is not available")
             resolved_run = self._resolve_run(run)
             if family not in {"normal", "strange"}:
                 raise ValueError("review family must be 'normal' or 'strange'")
@@ -365,6 +339,7 @@ class EstimatorService:
             self.session = SessionState(
                 mode="label_review",
                 run=resolved_run,
+                detector=DETECTOR_ATTPC,
                 source="label_set",
                 family=family,
                 label=label,
@@ -378,16 +353,15 @@ class EstimatorService:
             }
 
         if mode != "review":
-            raise ValueError(
-                "session mode must be 'label', 'label_review', 'review', "
-                "'pointcloud', 'pointcloud_label', or 'pointcloud_label_review'"
-            )
+            raise ValueError("session mode must be 'label', 'label_review', or 'review'")
         if source not in {"label_set", "filter_file", "event_trace"}:
             raise ValueError(
                 "review session source must be 'label_set', 'filter_file', or 'event_trace'"
             )
 
         if source == "label_set":
+            if resolved_detector != DETECTOR_ATTPC:
+                raise ValueError(f"{resolved_detector} labeled review is not available")
             resolved_run = self._resolve_run(run)
             if family not in {"normal", "strange"}:
                 raise ValueError("review family must be 'normal' or 'strange'")
@@ -408,6 +382,7 @@ class EstimatorService:
             self.session = SessionState(
                 mode="review",
                 run=resolved_run,
+                detector=DETECTOR_ATTPC,
                 source="label_set",
                 family=family,
                 label=label,
@@ -421,6 +396,8 @@ class EstimatorService:
             }
 
         if source == "filter_file":
+            if resolved_detector != DETECTOR_ATTPC:
+                raise ValueError(f"{resolved_detector} filter-file review is not available")
             if filter_file is None:
                 raise ValueError("filterFile is required for filter-file review")
             source_key = ("review", "filter_file", filter_file)
@@ -432,6 +409,7 @@ class EstimatorService:
             self.session = SessionState(
                 mode="review",
                 run=None,
+                detector=DETECTOR_ATTPC,
                 source="filter_file",
                 filter_file=filter_file,
             )
@@ -449,21 +427,51 @@ class EstimatorService:
             return payload
 
         resolved_run = self._resolve_run(run)
-        if event_id is None or trace_id is None:
-            raise ValueError("eventId and traceId are required for direct event review")
-        source_key = ("review", "event_trace", resolved_run)
+        if event_id is None:
+            raise ValueError("eventId is required for direct event review")
+        resolved_trace_id = (
+            0
+            if resolved_detector == DETECTOR_IC
+            else int(trace_id) if trace_id is not None else None
+        )
+        if resolved_detector == DETECTOR_ATTPC and resolved_trace_id is None:
+            raise ValueError("traceId is required for ATTPC direct event review")
+        resolved_filter_item = self._normalize_direct_filter_item(filter_item)
+        resolved_filter_value = (
+            float(filter_value)
+            if resolved_filter_item == "max" and filter_value is not None
+            else None
+        )
+        source_key = (
+            "review",
+            "event_trace",
+            resolved_run,
+            resolved_detector,
+            resolved_filter_item,
+            resolved_filter_value,
+        )
         direct_source = self._get_or_create_source(source_key)
         assert isinstance(direct_source, DirectTraceSource)
-        record = direct_source.set_position(event_id=int(event_id), trace_id=int(trace_id))
+        record = direct_source.set_position(
+            event_id=int(event_id),
+            trace_id=resolved_trace_id,
+            si_side=si_side,
+            si_index=si_index,
+            gagg_layer=gagg_layer,
+            gagg_index=gagg_index,
+        )
         self._active_source_key = source_key
         self._active_pointcloud_label_key = None
         self._active_pointcloud_key = None
         self.session = SessionState(
             mode="review",
             run=resolved_run,
+            detector=resolved_detector,
             source="event_trace",
             event_id=int(event_id),
-            trace_id=int(trace_id),
+            trace_id=int(record.trace_id),
+            filter_item=resolved_filter_item,
+            filter_value=resolved_filter_value,
         )
         return {
             "session": self.session.as_payload(),
@@ -471,7 +479,9 @@ class EstimatorService:
         }
 
     def current_trace(self) -> dict[str, Any]:
-        return self._serialize_source_trace(self._current_source().current_trace_or_raise())
+        return self._serialize_source_trace(
+            self._current_source().current_trace_or_raise()
+        )
 
     def next_trace(self) -> dict[str, Any]:
         return self._serialize_source_trace(self._current_source().next_trace())
@@ -482,13 +492,17 @@ class EstimatorService:
     def next_event(self) -> dict[str, Any]:
         source = self._current_source()
         if not isinstance(source, DirectTraceSource):
-            raise LookupError("event navigation is only available for direct event review")
+            raise LookupError(
+                "event navigation is only available for direct event review"
+            )
         return self._serialize_source_trace(source.next_event())
 
     def previous_event(self) -> dict[str, Any]:
         source = self._current_source()
         if not isinstance(source, DirectTraceSource):
-            raise LookupError("event navigation is only available for direct event review")
+            raise LookupError(
+                "event navigation is only available for direct event review"
+            )
         return self._serialize_source_trace(source.previous_event())
 
     def assign_label(
@@ -501,6 +515,8 @@ class EstimatorService:
     ) -> dict[str, Any]:
         if family not in {"normal", "strange"}:
             raise ValueError("label family must be 'normal' or 'strange'")
+        if self.session.detector != DETECTOR_ATTPC:
+            raise ValueError(f"{self.session.detector} trace labeling is not available")
         if self.session.run is None:
             raise ValueError("label assignment requires an active run-backed session")
 
@@ -541,45 +557,16 @@ class EstimatorService:
         }
 
     def current_pointcloud_label_event(self) -> dict[str, Any]:
-        if self.session.mode == "pointcloud_label_review":
-            ref = self._current_pointcloud_source().current_ref_or_raise()
-        else:
-            ref = self._current_pointcloud_label_source().current_ref_or_raise()
-        return self._serialize_pointcloud_label_event(ref.run, ref.event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def next_pointcloud_label_event(self) -> dict[str, Any]:
-        if self.session.mode == "pointcloud_label_review":
-            ref = self._current_pointcloud_source().next_ref()
-        else:
-            ref = self._current_pointcloud_label_source().next_ref()
-        return self._serialize_pointcloud_label_event(ref.run, ref.event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def previous_pointcloud_label_event(self) -> dict[str, Any]:
-        if self.session.mode == "pointcloud_label_review":
-            ref = self._current_pointcloud_source().previous_ref()
-        else:
-            ref = self._current_pointcloud_label_source().previous_ref()
-        return self._serialize_pointcloud_label_event(ref.run, ref.event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def assign_pointcloud_label(self, *, event_id: int, label: str) -> dict[str, Any]:
-        if self.session.mode not in {"pointcloud_label", "pointcloud_label_review"} or self.session.run is None:
-            raise ValueError("pointcloud label assignment requires an active pointcloud-label session")
-        if label not in {"0", "1", "2", "3", "4", "5", "6+"}:
-            raise ValueError("pointcloud label must be one of 0, 1, 2, 3, 4, 5, or 6+")
-        if self.session.mode == "pointcloud_label_review":
-            source = self._current_pointcloud_source()
-        else:
-            source = self._current_pointcloud_label_source()
-        ref = source.current_ref_or_raise()
-        if int(event_id) != ref.event_id:
-            raise ValueError("selected pointcloud event is not available")
-        self.repository.save_pointcloud_label(ref.run, ref.event_id, label)
-        self._refresh_pointcloud_label_sources(run=ref.run)
-        self._refresh_pointcloud_sources(run=ref.run)
-        return {
-            "pointcloudSummary": pointcloud_summary(self.repository),
-            "currentLabel": label,
-        }
+        raise ValueError("pointcloud features are disabled in the trace-only build")
 
     def get_strange_labels(self) -> dict[str, Any]:
         return {"strangeLabels": self.repository.list_strange_labels()}
@@ -609,6 +596,7 @@ class EstimatorService:
         metric: str,
         mode: str,
         run: int,
+        detector: str | None = None,
         variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
@@ -617,6 +605,7 @@ class EstimatorService:
             metric=metric,
             mode=mode,
             run=run,
+            detector=detector,
             variant=variant,
             filter_file=filter_file,
             veto=veto,
@@ -628,6 +617,7 @@ class EstimatorService:
         metric: str,
         mode: str,
         run: int,
+        detector: str | None = None,
         variant: str | None = None,
         filter_file: str | None = None,
         veto: bool = False,
@@ -637,6 +627,7 @@ class EstimatorService:
                 metric=metric,
                 mode=mode,
                 run=run,
+                detector=detector,
                 variant=variant,
                 filter_file=filter_file,
                 veto=veto,
@@ -652,19 +643,16 @@ class EstimatorService:
         return self.histograms.next_job_message(job_id, after_index)
 
     def get_pointcloud_event(self, *, run: int, event_id: int) -> dict[str, Any]:
-        return self.pointcloud.get_event(run=run, event_id=event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def current_pointcloud_event(self) -> dict[str, Any]:
-        ref = self._current_pointcloud_source().current_ref_or_raise()
-        return self._serialize_pointcloud_event(ref.run, ref.event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def next_pointcloud_event(self) -> dict[str, Any]:
-        ref = self._current_pointcloud_source().next_ref()
-        return self._serialize_pointcloud_event(ref.run, ref.event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def previous_pointcloud_event(self) -> dict[str, Any]:
-        ref = self._current_pointcloud_source().previous_ref()
-        return self._serialize_pointcloud_event(ref.run, ref.event_id)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def get_pointcloud_traces(
         self,
@@ -673,7 +661,7 @@ class EstimatorService:
         event_id: int,
         trace_ids: list[int],
     ) -> dict[str, Any]:
-        return self.pointcloud.get_traces(run=run, event_id=event_id, trace_ids=trace_ids)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def update_ui_state(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.ui_state = self._normalize_ui_state(payload)
@@ -692,17 +680,7 @@ class EstimatorService:
         raise ValueError("no runs are available")
 
     def _resolve_pointcloud_run(self, run: int | None) -> int:
-        pointcloud_runs = sorted(int(value) for value in self.pointcloud.pointcloud_files)
-        if run is not None:
-            resolved_run = int(run)
-            if resolved_run not in self.pointcloud.pointcloud_files:
-                raise ValueError(f"pointcloud run {resolved_run} is not available")
-            return resolved_run
-        if self.session.run is not None and int(self.session.run) in self.pointcloud.pointcloud_files:
-            return int(self.session.run)
-        if pointcloud_runs:
-            return pointcloud_runs[0]
-        raise ValueError("no pointcloud runs are available")
+        raise ValueError("pointcloud features are disabled in the trace-only build")
 
     def _resolve_initial_run(self, run: int | None) -> int | None:
         if run is None:
@@ -711,42 +689,65 @@ class EstimatorService:
             raise ValueError(f"default run {run} is not available")
         return run
 
+    @staticmethod
+    def _normalize_direct_filter_item(filter_item: str | None) -> str:
+        token = str(filter_item or "none").strip().lower()
+        if token not in {"none", "max"}:
+            raise ValueError("filterItem must be 'none' or 'max'")
+        return token
+
     def _current_source(self) -> TraceSource | DirectTraceSource:
         if self._active_source_key is None:
             raise LookupError("no active trace source is available")
         return self._get_or_create_source(self._active_source_key)
 
     def _current_pointcloud_label_source(self) -> PointcloudLabelSource:
-        if self._active_pointcloud_label_key is None:
-            raise LookupError("no active pointcloud-label source is available")
-        return self._get_or_create_pointcloud_label_source(self._active_pointcloud_label_key)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def _current_pointcloud_source(self) -> PointcloudBrowseSource:
-        if self._active_pointcloud_key is None:
-            raise LookupError("no active pointcloud source is available")
-        return self._get_or_create_pointcloud_source(self._active_pointcloud_key)
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def _serialize_source_trace(self, record) -> dict[str, Any]:
         if self.session.source == "event_trace":
             self.session.event_id = int(record.event_id)
             self.session.trace_id = int(record.trace_id)
         self._persist_saved_state()
-        label = self.repository.get_label(record.run, record.event_id, record.trace_id)
+        label = (
+            None
+            if record.detector != DETECTOR_ATTPC
+            else self.repository.get_label(record.run, record.event_id, record.trace_id)
+        )
         source = self._current_source()
         event_trace_count = (
             source.current_event_trace_count()
             if isinstance(source, DirectTraceSource)
             else None
         )
-        event_id_range = source.event_id_range() if isinstance(source, DirectTraceSource) else None
+        event_id_range = (
+            source.event_id_range() if isinstance(source, DirectTraceSource) else None
+        )
         return serialize_trace_payload(
             record,
             bitflip_baseline_threshold=self.bitflip_baseline_threshold,
             label=label,
             review_progress=source.get_progress(),
             include_run=True,
+            peak_separation=self.peak_separation,
+            peak_prominence=self.peak_prominence,
+            peak_width=self.peak_width,
+            peak_threshold=self.peak_threshold,
+            peak_rel_height=self.peak_rel_height,
             event_trace_count=event_trace_count,
             event_id_range=event_id_range,
+            trace_selector=(
+                source.current_trace_selector()
+                if isinstance(source, DirectTraceSource)
+                else None
+            ),
+            event_context=(
+                source.event_context() if isinstance(source, DirectTraceSource) else None
+            ),
+            trace_metadata=serialize_trace_metadata(record),
         )
 
     def _get_or_create_source(
@@ -766,44 +767,13 @@ class EstimatorService:
         self,
         key: tuple[str, int],
     ) -> PointcloudLabelSource:
-        source = self._pointcloud_label_sources.get(key)
-        labeled_event_ids = self.repository.list_labeled_pointcloud_event_ids(int(key[1]))
-        if source is None:
-            source = PointcloudLabelSource(
-                event_ranges=self.pointcloud._event_ranges,
-                run=int(key[1]),
-                labeled_event_ids=labeled_event_ids,
-            )
-            self._pointcloud_label_sources[key] = source
-            return source
-        source.update_labeled_event_ids(labeled_event_ids)
-        return source
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def _get_or_create_pointcloud_source(
         self,
         key: tuple[Any, ...],
     ) -> PointcloudBrowseSource:
-        source = self._pointcloud_sources.get(key)
-        labeled_event_ids: list[int] = []
-        if key[1] == "label_set":
-            labeled_event_ids = [
-                event_id
-                for event_id, _ in self.repository.list_labeled_pointcloud_events(
-                    int(key[2]),
-                    label=key[3] if len(key) > 3 else None,
-                )
-            ]
-        if source is None:
-            source = PointcloudBrowseSource(
-                event_ranges=self.pointcloud._event_ranges,
-                run=int(key[2]),
-                source=str(key[1]),
-                labeled_event_ids=labeled_event_ids,
-            )
-            self._pointcloud_sources[key] = source
-            return source
-        source.update_labeled_event_ids(labeled_event_ids)
-        return source
+        raise LookupError("pointcloud features are disabled in the trace-only build")
 
     def _build_source(
         self,
@@ -833,7 +803,9 @@ class EstimatorService:
         if key[0] == "review" and key[1] == "filter_file":
             filter_file = str(key[2])
             filter_path = filter_dir(self.workspace) / filter_file
-            available = {path.name for path in filter_dir(self.workspace).glob("filter_*.npy")}
+            available = {
+                path.name for path in filter_dir(self.workspace).glob("filter_*.npy")
+            }
             if filter_file not in available:
                 raise ValueError(f"filter file not found: {filter_file}")
             rows = np.load(filter_path)
@@ -846,11 +818,25 @@ class EstimatorService:
             )
         if key[0] == "review" and key[1] == "event_trace":
             run = int(key[2])
+            detector = (
+                normalize_detector(str(key[3]))
+                if len(key) > 3
+                else DETECTOR_ATTPC
+            )
+            filter_item = str(key[4]) if len(key) > 4 else "none"
+            filter_value = float(key[5]) if len(key) > 5 and key[5] is not None else None
             return DirectTraceSource(
                 self.run_files[run],
                 run=run,
                 labels=labels,
-                baseline_window_scale=self.baseline_window_scale,
+                baseline_window_scale=(
+                    self.ic_baseline_window_scale
+                    if detector == DETECTOR_IC
+                    else self.baseline_window_scale
+                ),
+                detector=detector,
+                filter_item=filter_item,
+                filter_value=filter_value,
             )
         raise ValueError(f"unsupported source key: {key!r}")
 
@@ -876,7 +862,9 @@ class EstimatorService:
     def _restore_runtime_session(self, payload: dict[str, Any]) -> None:
         session_payload = payload.get("session")
         source_payload = payload.get("source")
-        if not isinstance(session_payload, dict) or not isinstance(source_payload, dict):
+        if not isinstance(session_payload, dict) or not isinstance(
+            source_payload, dict
+        ):
             return
         mode = session_payload.get("mode")
         run = session_payload.get("run")
@@ -886,6 +874,8 @@ class EstimatorService:
         filter_file = session_payload.get("filterFile")
         event_id = session_payload.get("eventId")
         trace_id = session_payload.get("traceId")
+        filter_item = session_payload.get("filterItem")
+        filter_value = session_payload.get("filterValue")
 
         if mode == "label":
             resolved_run = self._resolve_run(run if isinstance(run, int) else None)
@@ -923,62 +913,8 @@ class EstimatorService:
             self._active_pointcloud_key = None
             return
 
-        if mode == "pointcloud_label":
-            resolved_run = self._resolve_pointcloud_run(run if isinstance(run, int) else None)
-            key = ("pointcloud_label", resolved_run)
-            source = self._get_or_create_pointcloud_label_source(key)
-            source.restore_state(source_payload)
-            if source.current_ref() is None:
-                source.next_ref()
-            self.session = SessionState(mode="pointcloud_label", run=resolved_run)
-            self._active_source_key = None
-            self._active_pointcloud_label_key = key
-            self._active_pointcloud_key = None
-            return
-
-        if mode == "pointcloud_label_review":
-            resolved_run = self._resolve_pointcloud_run(run if isinstance(run, int) else None)
-            key = ("pointcloud_label_review", "label_set", resolved_run, label)
-            source = self._get_or_create_pointcloud_source(key)
-            source.restore_state(source_payload)
-            if source.current_ref() is None:
-                source.next_ref()
-            current = source.current_ref_or_raise()
-            self.session = SessionState(
-                mode="pointcloud_label_review",
-                run=resolved_run,
-                source="label_set",
-                label=label if isinstance(label, str) else None,
-                event_id=current.event_id,
-            )
-            self._active_source_key = None
-            self._active_pointcloud_label_key = None
-            self._active_pointcloud_key = key
-            return
-
-        if mode == "pointcloud":
-            resolved_run = self._resolve_pointcloud_run(run if isinstance(run, int) else None)
-            key = (
-                ("pointcloud", "label_set", resolved_run, label)
-                if source_name == "label_set"
-                else ("pointcloud", "event_id", resolved_run)
-            )
-            source = self._get_or_create_pointcloud_source(key)
-            source.restore_state(source_payload)
-            if source.current_ref() is None:
-                source.next_ref()
-            current = source.current_ref_or_raise()
-            self.session = SessionState(
-                mode="pointcloud",
-                run=resolved_run,
-                source="label_set" if source_name == "label_set" else "event_id",
-                label=label if isinstance(label, str) else None,
-                event_id=current.event_id,
-            )
-            self._active_source_key = None
-            self._active_pointcloud_label_key = None
-            self._active_pointcloud_key = key
-            return
+        if mode in {"pointcloud_label", "pointcloud_label_review", "pointcloud"}:
+            raise ValueError("pointcloud modes are disabled in the trace-only build")
 
         if mode != "review":
             return
@@ -1025,40 +961,56 @@ class EstimatorService:
             source_name == "event_trace"
             and isinstance(run, int)
             and isinstance(event_id, int)
-            and isinstance(trace_id, int)
         ):
-            key = ("review", "event_trace", run)
+            detector_name = session_payload.get("detector")
+            resolved_detector = normalize_detector(
+                detector_name if isinstance(detector_name, str) else DETECTOR_ATTPC
+            )
+            resolved_run = self._resolve_run(run)
+            resolved_filter_item = self._normalize_direct_filter_item(
+                filter_item if isinstance(filter_item, str) else None
+            )
+            resolved_filter_value = (
+                float(filter_value)
+                if resolved_filter_item == "max"
+                and isinstance(filter_value, (int, float))
+                else None
+            )
+            key = (
+                "review",
+                "event_trace",
+                resolved_run,
+                resolved_detector,
+                resolved_filter_item,
+                resolved_filter_value,
+            )
             source = self._get_or_create_source(key)
             assert isinstance(source, DirectTraceSource)
             source.restore_state(source_payload)
+            resolved_trace_id = (
+                0
+                if resolved_detector == DETECTOR_IC
+                else trace_id if isinstance(trace_id, int) else None
+            )
+            if resolved_trace_id is None:
+                raise ValueError(
+                    f"traceId is required for {resolved_detector} direct event review"
+                )
             self.session = SessionState(
                 mode="review",
-                run=run,
+                run=resolved_run,
+                detector=resolved_detector,
                 source="event_trace",
                 event_id=event_id,
-                trace_id=trace_id,
+                trace_id=resolved_trace_id,
+                filter_item=resolved_filter_item,
+                filter_value=resolved_filter_value,
             )
             self._active_source_key = key
             self._active_pointcloud_label_key = None
             self._active_pointcloud_key = None
 
     def _runtime_session_snapshot(self) -> dict[str, Any] | None:
-        if self._active_pointcloud_key is not None:
-            source = self._pointcloud_sources.get(self._active_pointcloud_key)
-            if source is None:
-                return None
-            return {
-                "session": self.session.as_payload(),
-                "source": source.snapshot_state(),
-            }
-        if self._active_pointcloud_label_key is not None:
-            source = self._pointcloud_label_sources.get(self._active_pointcloud_label_key)
-            if source is None:
-                return None
-            return {
-                "session": self.session.as_payload(),
-                "source": source.snapshot_state(),
-            }
         if self._active_source_key is None:
             return None
         source = self._sources.get(self._active_source_key)
@@ -1079,10 +1031,14 @@ class EstimatorService:
         state = default_ui_state()
         if not isinstance(payload, dict):
             state["shell"]["selectedRun"] = self._resolve_initial_run(self.session.run)
-            state["histograms"]["selectedRun"] = self._resolve_initial_run(self.session.run)
-            state["pointcloud"]["selectedRun"] = (
-                sorted(self.pointcloud.pointcloud_files)[0] if self.pointcloud.pointcloud_files else None
+            state["histograms"]["selectedRun"] = self._resolve_initial_run(
+                self.session.run
             )
+            # state["pointcloud"]["selectedRun"] = (
+            #     sorted(self.pointcloud.pointcloud_files)[0]
+            #     if self.pointcloud.pointcloud_files
+            #     else None
+            # )
             return state
 
         route = payload.get("route")
@@ -1091,8 +1047,9 @@ class EstimatorService:
 
         runs = sorted(self.run_files)
         run_values = set(runs)
-        filter_files = {path.name for path in filter_dir(self.workspace).glob("filter_*.npy")}
-        pointcloud_runs = set(int(run) for run in self.pointcloud.pointcloud_files)
+        filter_files = {
+            path.name for path in filter_dir(self.workspace).glob("filter_*.npy")
+        }
 
         shell_payload = payload.get("shell")
         if isinstance(shell_payload, dict):
@@ -1103,14 +1060,21 @@ class EstimatorService:
         label_payload = payload.get("label")
         if isinstance(label_payload, dict):
             visual_mode = label_payload.get("visualMode")
-            if visual_mode in {"raw", "cdf", "curvature"}:
+            if visual_mode in {"raw", "cdf", "curvature", "peak"}:
                 state["label"]["visualMode"] = visual_mode
 
         review_payload = payload.get("review")
         if isinstance(review_payload, dict):
+            state["review"]["detector"] = DETECTOR_ATTPC
             source_name = review_payload.get("source")
             if source_name in {"label_set", "filter_file", "event_trace"}:
                 state["review"]["source"] = source_name
+            if (
+                state["review"]["source"] == "event_trace"
+                and review_payload.get("detector")
+                in {DETECTOR_ATTPC, DETECTOR_IC, DETECTOR_SI, DETECTOR_GAGG}
+            ):
+                state["review"]["detector"] = review_payload["detector"]
             review_run = review_payload.get("run")
             if isinstance(review_run, int) and review_run in run_values:
                 state["review"]["run"] = review_run
@@ -1127,12 +1091,32 @@ class EstimatorService:
                 value = review_payload.get(key)
                 if isinstance(value, int):
                     state["review"][key] = value
+            filter_item = review_payload.get("filterItem")
+            if filter_item in {"none", "max"}:
+                state["review"]["filterItem"] = filter_item
+            filter_value = review_payload.get("filterValue")
+            if isinstance(filter_value, (int, float)):
+                state["review"]["filterValue"] = float(filter_value)
+            if (
+                state["review"]["source"] == "event_trace"
+                and state["review"]["detector"] == DETECTOR_IC
+            ):
+                state["review"]["traceId"] = 0
             visual_mode = review_payload.get("visualMode")
-            if visual_mode in {"raw", "cdf", "curvature"}:
+            if visual_mode in {"raw", "cdf", "curvature", "peak"}:
                 state["review"]["visualMode"] = visual_mode
 
         histogram_payload = payload.get("histograms")
         if isinstance(histogram_payload, dict):
+            if histogram_payload.get("selectedDetector") in {
+                DETECTOR_ATTPC,
+                DETECTOR_IC,
+                DETECTOR_SI,
+                DETECTOR_GAGG,
+            }:
+                state["histograms"]["selectedDetector"] = histogram_payload[
+                    "selectedDetector"
+                ]
             histogram_run = histogram_payload.get("selectedRun")
             if isinstance(histogram_run, int) and histogram_run in run_values:
                 state["histograms"]["selectedRun"] = histogram_run
@@ -1166,14 +1150,18 @@ class EstimatorService:
             )
             cdf_projection_bin = histogram_payload.get("cdfProjectionBin")
             if isinstance(cdf_projection_bin, int):
-                state["histograms"]["cdfProjectionBin"] = min(150, max(1, cdf_projection_bin))
+                state["histograms"]["cdfProjectionBin"] = min(
+                    150, max(1, cdf_projection_bin)
+                )
             labeled_order = histogram_payload.get("labeledSeriesOrder")
             if isinstance(labeled_order, dict):
                 normalized_order: dict[str, list[str]] = {}
                 for key, values in labeled_order.items():
                     if not isinstance(key, str) or not isinstance(values, list):
                         continue
-                    normalized_order[key] = [value for value in values if isinstance(value, str)]
+                    normalized_order[key] = [
+                        value for value in values if isinstance(value, str)
+                    ]
                 state["histograms"]["labeledSeriesOrder"] = normalized_order
 
         mapping_payload = payload.get("mapping")
@@ -1196,56 +1184,10 @@ class EstimatorService:
                     if isinstance(rule, dict)
                 ]
 
-        pointcloud_payload = payload.get("pointcloud")
-        if isinstance(pointcloud_payload, dict):
-            if pointcloud_payload.get("source") in {"event_id", "label_set"}:
-                state["pointcloud"]["source"] = pointcloud_payload["source"]
-            selected_run = pointcloud_payload.get("selectedRun")
-            if isinstance(selected_run, int) and selected_run in pointcloud_runs:
-                state["pointcloud"]["selectedRun"] = selected_run
-            selected_event_id = pointcloud_payload.get("selectedEventId")
-            if isinstance(selected_event_id, int):
-                state["pointcloud"]["selectedEventId"] = selected_event_id
-            selected_label = pointcloud_payload.get("selectedLabel")
-            if isinstance(selected_label, str) and selected_label in {"", "0", "1", "2", "3", "4", "5", "6+"}:
-                state["pointcloud"]["selectedLabel"] = selected_label
-            if pointcloud_payload.get("layoutMode") in {"1x1", "2x2"}:
-                state["pointcloud"]["layoutMode"] = pointcloud_payload["layoutMode"]
-            panel_types = pointcloud_payload.get("panelTypes")
-            if isinstance(panel_types, list) and panel_types:
-                state["pointcloud"]["panelTypes"] = [
-                    value
-                    for value in panel_types[:4]
-                    if value in {
-                        "hits-3d-amplitude",
-                        "hits-2d-z",
-                        "hits-2d-amplitude",
-                        "hits-2d-pca-amplitude",
-                        "pads-z",
-                        "pads-amplitude",
-                        "traces",
-                    }
-                ] or state["pointcloud"]["panelTypes"]
-            selected_trace_ids = pointcloud_payload.get("selectedTraceIds")
-            if isinstance(selected_trace_ids, list):
-                state["pointcloud"]["selectedTraceIds"] = [
-                    int(value)
-                    for value in selected_trace_ids
-                    if isinstance(value, int)
-                ][:8]
-
-        pointcloud_label_payload = payload.get("pointcloudLabel")
-        if isinstance(pointcloud_label_payload, dict):
-            visual_mode = pointcloud_label_payload.get("visualMode")
-            if visual_mode in {"basic", "detail"}:
-                state["pointcloudLabel"]["visualMode"] = visual_mode
-
         if state["shell"]["selectedRun"] is None and runs:
             state["shell"]["selectedRun"] = runs[0]
         if state["histograms"]["selectedRun"] is None:
             state["histograms"]["selectedRun"] = state["shell"]["selectedRun"]
-        if state["pointcloud"]["selectedRun"] is None and pointcloud_runs:
-            state["pointcloud"]["selectedRun"] = sorted(pointcloud_runs)[0]
 
         return state
 
@@ -1273,59 +1215,63 @@ class EstimatorService:
             and int(key[2]) == run
         )
 
-    @staticmethod
-    def _is_supported_route(route: str) -> bool:
+    def _is_supported_route(self, route: str) -> bool:
         path = route.split("?", 1)[0].split("#", 1)[0]
         return path in {
             "/",
             "/label",
             "/label/trace",
-            "/label/pointcloud",
             "/browse",
             "/browse/trace",
-            "/browse/pointcloud",
-            "/histograms",
             "/mapping",
+            "/histograms",
         }
 
-    def _serialize_pointcloud_event(self, run: int, event_id: int) -> dict[str, Any]:
-        payload = self.pointcloud.get_event(run=run, event_id=event_id)
-        if self.session.mode == "pointcloud":
-            self.session.run = int(run)
-            self.session.event_id = int(event_id)
-        self._persist_saved_state()
-        return payload
+    # def _serialize_pointcloud_event(self, run: int, event_id: int) -> dict[str, Any]:
+    #     payload = self.pointcloud.get_event(run=run, event_id=event_id)
+    #     if self.session.mode == "pointcloud":
+    #         self.session.run = int(run)
+    #         self.session.event_id = int(event_id)
+    #     self._persist_saved_state()
+    #     return payload
 
-    def _serialize_pointcloud_label_event(self, run: int, event_id: int) -> dict[str, Any]:
-        payload = self.pointcloud.get_label_event(
-            run=run,
-            event_id=event_id,
-            ransac_config=self.ransac_config,
-            merge_config=self.merge_config,
-        )
-        if self.session.mode in {"pointcloud_label", "pointcloud_label_review"}:
-            self.session.run = int(run)
-            self.session.event_id = int(event_id)
-        payload["currentLabel"] = self.repository.get_pointcloud_label(run, event_id)
-        self._persist_saved_state()
-        return payload
+    # def _serialize_pointcloud_label_event(
+    #     self, run: int, event_id: int
+    # ) -> dict[str, Any]:
+    #         self.session.event_id = int(event_id)
+    #     self._persist_saved_state()
+    #     return payload
 
-    def _refresh_pointcloud_label_sources(self, *, run: int) -> None:
-        labeled_event_ids = self.repository.list_labeled_pointcloud_event_ids(run)
-        for key, source in self._pointcloud_label_sources.items():
-            if int(key[1]) == int(run):
-                source.update_labeled_event_ids(labeled_event_ids)
+    # def _serialize_pointcloud_label_event(self, run: int, event_id: int) -> dict[str, Any]:
+    #     payload = self.pointcloud.get_label_event(
+    #         run=run,
+    #         event_id=event_id,
+    #         ransac_config=self.ransac_config,
+    #         merge_config=self.merge_config,
+    #     )
+    #     if self.session.mode in {"pointcloud_label", "pointcloud_label_review"}:
+    #         self.session.run = int(run)
+    #         self.session.event_id = int(event_id)
+    #     payload["currentLabel"] = self.repository.get_pointcloud_label(run, event_id)
+    #     self._persist_saved_state()
+    #     return payload
 
-    def _refresh_pointcloud_sources(self, *, run: int) -> None:
-        for key, source in self._pointcloud_sources.items():
-            if key[1] != "label_set" or int(key[2]) != int(run):
-                continue
-            source.update_labeled_event_ids(
-                [
-                    event_id
-                    for event_id, _ in self.repository.list_labeled_pointcloud_events(
-                        int(run),
-                        label=key[3] if len(key) > 3 else None,
-                    )
-                ]
-            )
+    # def _refresh_pointcloud_label_sources(self, *, run: int) -> None:
+    #     labeled_event_ids = self.repository.list_labeled_pointcloud_event_ids(run)
+    #     for key, source in self._pointcloud_label_sources.items():
+    #         if int(key[1]) == int(run):
+    #             source.update_labeled_event_ids(labeled_event_ids)
+
+    # def _refresh_pointcloud_sources(self, *, run: int) -> None:
+    #     for key, source in self._pointcloud_sources.items():
+    #         if key[1] != "label_set" or int(key[2]) != int(run):
+    #             continue
+    #         source.update_labeled_event_ids(
+    #             [
+    #                 event_id
+    #                 for event_id, _ in self.repository.list_labeled_pointcloud_events(
+    #                     int(run),
+    #                     label=key[3] if len(key) > 3 else None,
+    #                 )
+    #             ]
+    #         )

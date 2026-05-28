@@ -23,14 +23,14 @@ def test_random_selector_uses_full_scan_for_small_event_ranges(tmp_path, monkeyp
         {event_id: _rows(event_id) for event_id in range(1, 11)},
     )
 
-    original = selection.collect_event_counts
+    original = selection.collect_reader_event_counts
     calls = {"count": 0}
 
-    def wrapped(handle):
+    def wrapped(reader):
         calls["count"] += 1
-        return original(handle)
+        return original(reader)
 
-    monkeypatch.setattr(selection, "collect_event_counts", wrapped)
+    monkeypatch.setattr(selection, "collect_reader_event_counts", wrapped)
 
     selector = RandomUnlabeledSelector(trace_path)
     try:
@@ -47,10 +47,10 @@ def test_random_selector_uses_sparse_mode_for_large_event_ranges(tmp_path, monke
         {event_id: _rows(event_id) for event_id in range(1, 206)},
     )
 
-    def fail(_handle):
+    def fail(_reader):
         raise AssertionError("full event scan should not run for large files")
 
-    monkeypatch.setattr(selection, "collect_event_counts", fail)
+    monkeypatch.setattr(selection, "collect_reader_event_counts", fail)
 
     selector = RandomUnlabeledSelector(trace_path)
     try:

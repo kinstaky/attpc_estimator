@@ -89,6 +89,8 @@ def build_amplitude_filter_rows(
     peak_separation: float = 50.0,
     peak_prominence: float = 20.0,
     peak_width: float = 50.0,
+    peak_threshold: float = 0.0,
+    rel_height: float = 0.95,
     limit: int = DEFAULT_TRACE_LIMIT,
     progress: ProgressReporter | None = None,
 ) -> np.ndarray:
@@ -102,6 +104,8 @@ def build_amplitude_filter_rows(
                 peak_separation=peak_separation,
                 peak_prominence=peak_prominence,
                 peak_width=peak_width,
+                peak_threshold=peak_threshold,
+                rel_height=rel_height,
             )
         ],
         baseline_window_scale=baseline_window_scale,

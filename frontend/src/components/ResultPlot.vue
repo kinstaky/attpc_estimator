@@ -8,6 +8,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { loadPlotly } from "../lib/plotly";
 
 const props = defineProps({
+  detector: { type: String, default: "ATTPC" },
   metric: { type: String, required: true },
   series: { type: Object, required: true },
   variant: { type: String, default: "" },
@@ -198,11 +199,73 @@ function hoverLabel() {
   return props.binLabel || "Value";
 }
 
+function isIcAmplitude() {
+  return props.detector === "IC" && props.metric === "amplitude";
+}
+
+function rebinIcAmplitude(histogram) {
+  const targetBinCount = 400;
+  const sourceMin = 0;
+  const sourceMax = 2000;
+  const sourceWidth = 5;
+  const rebinned = Array.from({ length: targetBinCount }, () => 0);
+  for (let index = sourceMin; index < sourceMax && index < histogram.length; index += 1) {
+    const targetIndex = Math.floor(index / sourceWidth);
+    rebinned[targetIndex] += Number(histogram[index] || 0);
+  }
+  const centers = Array.from(
+    { length: targetBinCount },
+    (_, index) => index * sourceWidth + sourceWidth / 2,
+  );
+  return { histogram: rebinned, centers, binCount: targetBinCount };
+}
+
+function isBaseline() {
+  return props.metric === "baseline";
+}
+
+function rebinBaseline(histogram) {
+  const targetBinCount = 200;
+  const sourceMin = -100;
+  const sourceMax = 100;
+  const sourceWidth = (sourceMax - sourceMin) / targetBinCount;
+  const rebinned = Array.from({ length: targetBinCount }, () => 0);
+  const sourceCenters = props.binCenters?.length
+    ? props.binCenters.map(Number)
+    : histogramIndices(histogram.length);
+  for (let sourceIndex = 0; sourceIndex < histogram.length; sourceIndex += 1) {
+    const center = Number(sourceCenters[sourceIndex]);
+    if (Number.isNaN(center) || center < sourceMin || center > sourceMax) {
+      continue;
+    }
+    const targetIndex = Math.min(
+      targetBinCount - 1,
+      Math.floor((center - sourceMin) / sourceWidth),
+    );
+    rebinned[targetIndex] += Number(histogram[sourceIndex] || 0);
+  }
+  const centers = Array.from(
+    { length: targetBinCount },
+    (_, index) => sourceMin + index * sourceWidth + sourceWidth / 2,
+  );
+  return { histogram: rebinned, centers, binCount: targetBinCount };
+}
+
 async function renderOneDimensional() {
   const Plotly = await loadPlotly();
-  const count = props.binCount || props.series.histogram.length;
-  const xValues = props.binCenters?.length ? props.binCenters : histogramIndices(count);
-  const yValues = props.series.histogram.map((value) => {
+  const display = isIcAmplitude()
+    ? rebinIcAmplitude(props.series.histogram)
+    : isBaseline()
+      ? rebinBaseline(props.series.histogram)
+    : {
+      histogram: props.series.histogram,
+      centers: props.binCenters?.length
+        ? props.binCenters
+        : histogramIndices(props.binCount || props.series.histogram.length),
+      binCount: props.binCount || props.series.histogram.length,
+    };
+  const xValues = display.centers;
+  const yValues = display.histogram.map((value) => {
     const total = Number(value || 0);
     if (props.scaleMode === "log" && total <= 0) {
       return null;
@@ -217,7 +280,7 @@ async function renderOneDimensional() {
         type: "bar",
         x: xValues,
         y: yValues,
-        customdata: props.series.histogram,
+        customdata: display.histogram,
         marker: {
           color: "#174f40",
         },
@@ -229,6 +292,7 @@ async function renderOneDimensional() {
       title: { text: props.series.title, x: 0.02, xanchor: "left" },
       xaxis: {
         title: props.binLabel || hoverLabel(),
+        range: isIcAmplitude() ? [0, 2000] : isBaseline() ? [-100, 100] : undefined,
         zeroline: false,
         gridcolor: "#e7dfcf",
       },
@@ -269,6 +333,7 @@ onMounted(() => {
 watch(
   () => [
     props.metric,
+    props.detector,
     props.series,
     props.variant,
     props.thresholds,
