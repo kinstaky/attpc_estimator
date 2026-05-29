@@ -8,60 +8,19 @@ import sys
 import h5py
 import numpy as np
 import polars as pl
-from tqdm import tqdm
 
 from pointcloud import TraceLength, fft_filter_traces, find_trace_peaks
 
 from ..cli.config import parse_run, parse_toml_config, root_config_values, table_config_values
 from ..storage.run_paths import ion_chamber_run_path, resolve_run_file
 from ..utils.ion_chamber import describe_ion_chamber_events, load_ion_chamber_event
-
+from .progress_reporter import ProgressReporter, TqdmProgressReporter
 
 @dataclass(frozen=True, slots=True)
 class ProgressState:
-    total: int
-    unit: str
-    description: str
-
-
-class ProgressReporter:
-    def report_start(self, *, total: int, unit: str, description: str) -> None:
-        raise NotImplementedError
-
-    def report_progress(self, current: int, *, message: str = "") -> None:
-        raise NotImplementedError
-
-    def report_finish(self) -> None:
-        raise NotImplementedError
-
-
-class TqdmProgressReporter(ProgressReporter):
-    def __init__(self) -> None:
-        self._bar: tqdm | None = None
-        self._current = 0
-
-    def report_start(self, *, total: int, unit: str, description: str) -> None:
-        self.report_finish()
-        self._current = 0
-        self._bar = tqdm(total=max(int(total), 0), desc=description, unit=unit)
-
-    def report_progress(self, current: int, *, message: str = "") -> None:
-        if self._bar is None:
-            return
-        bounded = max(int(current), 0)
-        delta = max(0, bounded - self._current)
-        if delta:
-            self._bar.update(delta)
-        self._current = max(self._current, bounded)
-        if message:
-            self._bar.set_postfix_str(message)
-
-    def report_finish(self) -> None:
-        if self._bar is not None:
-            self._bar.close()
-            self._bar = None
-        self._current = 0
-
+	total: int
+	unit: str
+	description: str
 
 @dataclass(frozen=True, slots=True)
 class IcBaselineConfig:
@@ -93,11 +52,7 @@ def process_run(
     rows: list[dict[str, int | float]] = []
     with h5py.File(run_file, "r") as handle:
         metadata = describe_ion_chamber_events(handle)
-        progress.report_start(
-            total=metadata.valid_event_span,
-            unit="event",
-            description=f"Ion chamber run {run:04d}",
-        )
+        progress.report_start()
         processed_events = 0
         for event_id in range(metadata.min_event, metadata.max_event + 1):
             if event_id in metadata.bad_events:
@@ -303,7 +258,7 @@ def main() -> None:
 
     trace_path = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
-    reporter = TqdmProgressReporter()
+    reporter = TqdmProgressReporter(description="Processing ion chamber")
     baseline_config = IcBaselineConfig(fft_window_scale=float(args.baseline_window_scale))
     amplitude_config = IcAmplitudeConfig(
         peak_separation=float(args.peak_separation),

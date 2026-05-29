@@ -12,7 +12,6 @@ from ...utils.trace_data import (
     DETECTOR_GAGG,
     DETECTOR_IC,
     DETECTOR_SI,
-    PAD_TRACE_OFFSET,
     gagg_event_selector,
     gagg_layer_counts,
     gagg_trace_id_from_selector,
@@ -370,18 +369,8 @@ class DirectTraceSource:
         return trace_ids
 
     def _trace_max_value(self, event_id: int, trace_id: int) -> float:
-        if self.detector == DETECTOR_IC:
-            record = self._record_for(event_id, 0)
-            return float(np.max(record.raw)) if record.raw.size else 0.0
-        rows = self._get_event_rows(event_id)
-        row = np.asarray(rows[int(trace_id)], dtype=np.float32)
-        if self.detector == DETECTOR_ATTPC:
-            samples = row[PAD_TRACE_OFFSET:]
-        elif self.detector == DETECTOR_SI:
-            samples = row[2:]
-        else:
-            samples = row
-        return float(np.max(samples)) if samples.size else 0.0
+        record = self._record_for(event_id, 0 if self.detector == DETECTOR_IC else trace_id)
+        return float(np.max(record.trace)) if record.trace.size else 0.0
 
     def _resolve_filtered_trace_id(
         self,

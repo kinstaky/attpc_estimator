@@ -101,6 +101,13 @@ IC_ARTIFACT_SUFFIXES = {
     ("baseline", "all"): ("_ic_baseline.npz",),
 }
 DETECTOR_ARTIFACT_VERSION = 1
+PEAK_CONFIG_KEYS = (
+    "peak_separation",
+    "peak_prominence",
+    "peak_width",
+    "peak_threshold",
+    "peak_rel_height",
+)
 ONE_D_METRIC_METADATA = {
     "amplitude": {
         None: {
@@ -200,6 +207,8 @@ class HistogramService:
         peak_width: float = 50.0,
         peak_threshold: float = 0.0,
         peak_rel_height: float = 0.95,
+        detector_baseline_window_scales: dict[str, float] | None = None,
+        detector_peak_configs: dict[str, dict[str, float]] | None = None,
         bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
         saturation_threshold: float = 2000.0,
         saturation_drop_threshold: float = 10.0,
@@ -209,22 +218,91 @@ class HistogramService:
         self.trace_path = trace_path
         self.workspace = workspace
         self.baseline_window_scale = baseline_window_scale
-        self.peak_separation = peak_separation
-        self.peak_prominence = peak_prominence
-        self.peak_width = peak_width
-        self.peak_threshold = peak_threshold
-        self.peak_rel_height = peak_rel_height
-        self.bitflip_baseline_threshold = bitflip_baseline_threshold
-        self.saturation_threshold = saturation_threshold
-        self.saturation_drop_threshold = saturation_drop_threshold
-        self.saturation_window_radius = saturation_window_radius
         self.ic_baseline_window_scale = (
             baseline_window_scale
             if ic_baseline_window_scale is None
             else float(ic_baseline_window_scale)
         )
+        self.detector_baseline_window_scales = self._build_detector_baseline_window_scales(
+            baseline_window_scale=baseline_window_scale,
+            ic_baseline_window_scale=self.ic_baseline_window_scale,
+            detector_baseline_window_scales=detector_baseline_window_scales,
+        )
+        self.peak_separation = peak_separation
+        self.peak_prominence = peak_prominence
+        self.peak_width = peak_width
+        self.peak_threshold = peak_threshold
+        self.peak_rel_height = peak_rel_height
+        self.detector_peak_configs = self._build_detector_peak_configs(
+            peak_separation=peak_separation,
+            peak_prominence=peak_prominence,
+            peak_width=peak_width,
+            peak_threshold=peak_threshold,
+            peak_rel_height=peak_rel_height,
+            detector_peak_configs=detector_peak_configs,
+        )
+        self.bitflip_baseline_threshold = bitflip_baseline_threshold
+        self.saturation_threshold = saturation_threshold
+        self.saturation_drop_threshold = saturation_drop_threshold
+        self.saturation_window_radius = saturation_window_radius
         self.run_files = collect_run_files(trace_path)
         self.jobs = HistogramJobManager()
+
+    @staticmethod
+    def _build_detector_baseline_window_scales(
+        *,
+        baseline_window_scale: float,
+        ic_baseline_window_scale: float,
+        detector_baseline_window_scales: dict[str, float] | None,
+    ) -> dict[str, float]:
+        scales = {
+            DETECTOR_ATTPC: float(baseline_window_scale),
+            DETECTOR_IC: float(ic_baseline_window_scale),
+            DETECTOR_SI: float(baseline_window_scale),
+            DETECTOR_GAGG: float(baseline_window_scale),
+        }
+        for detector, value in (detector_baseline_window_scales or {}).items():
+            scales[normalize_detector(detector)] = float(value)
+        return scales
+
+    @staticmethod
+    def _build_detector_peak_configs(
+        *,
+        peak_separation: float,
+        peak_prominence: float,
+        peak_width: float,
+        peak_threshold: float,
+        peak_rel_height: float,
+        detector_peak_configs: dict[str, dict[str, float]] | None,
+    ) -> dict[str, dict[str, float]]:
+        default_config = {
+            "peak_separation": float(peak_separation),
+            "peak_prominence": float(peak_prominence),
+            "peak_width": float(peak_width),
+            "peak_threshold": float(peak_threshold),
+            "peak_rel_height": float(peak_rel_height),
+        }
+        configs = {
+            detector: dict(default_config)
+            for detector in (
+                DETECTOR_ATTPC,
+                DETECTOR_IC,
+                DETECTOR_SI,
+                DETECTOR_GAGG,
+            )
+        }
+        for detector, values in (detector_peak_configs or {}).items():
+            resolved = normalize_detector(detector)
+            for key in PEAK_CONFIG_KEYS:
+                if key in values:
+                    configs[resolved][key] = float(values[key])
+        return configs
+
+    def _baseline_window_scale_for(self, detector: str | None) -> float:
+        return float(self.detector_baseline_window_scales[normalize_detector(detector)])
+
+    def _peak_config_for(self, detector: str | None) -> dict[str, float]:
+        return self.detector_peak_configs[normalize_detector(detector)]
 
     def bootstrap_state(self) -> dict[str, Any]:
         run_ids = sorted(self.run_files)
@@ -561,20 +639,9 @@ class HistogramService:
             "metric": metric,
             "variant": "none" if variant in {None, ""} else str(variant),
         }
-        if detector == DETECTOR_IC:
-            metadata["baseline_window_scale"] = float(self.ic_baseline_window_scale)
-            if metric == "amplitude":
-                metadata.update(
-                    {
-                        "peak_separation": float(self.peak_separation),
-                        "peak_prominence": float(self.peak_prominence),
-                        "peak_width": float(self.peak_width),
-                        "peak_threshold": float(self.peak_threshold),
-                        "peak_rel_height": float(self.peak_rel_height),
-                    }
-                )
-        else:
-            metadata["baseline_window_scale"] = float(self.baseline_window_scale)
+        metadata["baseline_window_scale"] = self._baseline_window_scale_for(detector)
+        if metric in {"amplitude", "time"}:
+            metadata.update(self._peak_config_for(detector))
         return metadata
 
     def _load_or_build_detector_histogram_artifact(
@@ -767,6 +834,7 @@ class HistogramService:
     def _compute_ic_amplitude_artifact(self, run: int) -> dict[str, Any]:
         histogram = np.zeros(AMPLITUDE_BIN_COUNT, dtype=np.int64)
         trace_count = 0
+        peak_config = self._peak_config_for(DETECTOR_IC)
         reader = open_storage_trace_reader(
             run=run,
             path=str(self.run_files[run]),
@@ -780,16 +848,16 @@ class HistogramService:
                 payload = event["ic"][1]
                 cleaned = preprocess_traces(
                     np.asarray(payload, dtype=np.float32).reshape(1, -1),
-                    baseline_window_scale=self.ic_baseline_window_scale,
+                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_IC),
                 )
                 _accumulate_peak_histogram(
                     row=cleaned[0],
                     histogram=histogram,
-                    peak_separation=self.peak_separation,
-                    peak_prominence=self.peak_prominence,
-                    peak_width=self.peak_width,
-                    peak_threshold=self.peak_threshold,
-                    rel_height=self.peak_rel_height,
+                    peak_separation=peak_config["peak_separation"],
+                    peak_prominence=peak_config["peak_prominence"],
+                    peak_width=peak_config["peak_width"],
+                    peak_threshold=peak_config["peak_threshold"],
+                    rel_height=peak_config["peak_rel_height"],
                 )
                 trace_count += 1
         finally:
@@ -802,6 +870,7 @@ class HistogramService:
     def _compute_ic_time_artifact(self, run: int) -> dict[str, Any]:
         histogram = np.zeros(256, dtype=np.int64)
         trace_count = 0
+        peak_config = self._peak_config_for(DETECTOR_IC)
         reader = open_storage_trace_reader(
             run=run,
             path=str(self.run_files[run]),
@@ -815,15 +884,15 @@ class HistogramService:
                 payload = event["ic"][1]
                 cleaned = preprocess_traces(
                     np.asarray(payload, dtype=np.float32).reshape(1, -1),
-                    baseline_window_scale=self.ic_baseline_window_scale,
+                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_IC),
                 )
                 peaks, _ = signal.find_peaks(
                     cleaned[0],
-                    distance=self.peak_separation,
-                    height=self.peak_threshold,
-                    prominence=self.peak_prominence,
-                    width=(1.0, self.peak_width),
-                    rel_height=self.peak_rel_height,
+                    distance=peak_config["peak_separation"],
+                    height=peak_config["peak_threshold"],
+                    prominence=peak_config["peak_prominence"],
+                    width=(1.0, peak_config["peak_width"]),
+                    rel_height=peak_config["peak_rel_height"],
                 )
                 for peak in peaks:
                     histogram[int(np.clip(peak, 0, histogram.shape[0] - 1))] += 1
@@ -851,7 +920,7 @@ class HistogramService:
                 payload = event["ic"][1]
                 cleaned = preprocess_traces(
                     np.asarray(payload, dtype=np.float32).reshape(1, -1),
-                    baseline_window_scale=self.ic_baseline_window_scale,
+                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_IC),
                 )
                 accumulate_baseline_histogram(cleaned, histogram=histogram)
                 trace_count += 1
@@ -886,7 +955,7 @@ class HistogramService:
                 rows = reader_event_rows(reader, event_id, detector=DETECTOR_SI)
                 cleaned = preprocess_traces(
                     np.asarray(rows[:, 2:], dtype=np.float32),
-                    baseline_window_scale=self.baseline_window_scale,
+                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_SI),
                 )
                 counts = si_side_counts(rows)
                 for key, _title in side_order:
@@ -929,7 +998,7 @@ class HistogramService:
                 rows = reader_event_rows(reader, event_id, detector=DETECTOR_GAGG)
                 cleaned = preprocess_traces(
                     np.asarray(rows, dtype=np.float32),
-                    baseline_window_scale=self.baseline_window_scale,
+                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_GAGG),
                 )
                 for trace_id, trace in enumerate(cleaned):
                     accumulate_baseline_histogram(

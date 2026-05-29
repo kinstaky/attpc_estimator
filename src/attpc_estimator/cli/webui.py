@@ -38,11 +38,39 @@ def main() -> None:
         "workspace": workspace,
         "baseline_window_scale": args.baseline_window_scale,
         "ic_baseline_window_scale": args.ic_baseline_window_scale,
+        "detector_baseline_window_scales": {
+            "IC": args.ic_baseline_window_scale,
+            "SI": args.si_baseline_window_scale,
+            "GAGG": args.gagg_baseline_window_scale,
+        },
         "peak_separation": args.peak_separation,
         "peak_prominence": args.peak_prominence,
         "peak_width": args.peak_width,
         "peak_threshold": args.peak_threshold,
         "peak_rel_height": args.peak_rel_height,
+        "detector_peak_configs": {
+            "IC": {
+                "peak_separation": args.ic_peak_separation,
+                "peak_prominence": args.ic_peak_prominence,
+                "peak_width": args.ic_peak_width,
+                "peak_threshold": args.ic_peak_threshold,
+                "peak_rel_height": args.ic_peak_rel_height,
+            },
+            "SI": {
+                "peak_separation": args.si_peak_separation,
+                "peak_prominence": args.si_peak_prominence,
+                "peak_width": args.si_peak_width,
+                "peak_threshold": args.si_peak_threshold,
+                "peak_rel_height": args.si_peak_rel_height,
+            },
+            "GAGG": {
+                "peak_separation": args.gagg_peak_separation,
+                "peak_prominence": args.gagg_peak_prominence,
+                "peak_width": args.gagg_peak_width,
+                "peak_threshold": args.gagg_peak_threshold,
+                "peak_rel_height": args.gagg_peak_rel_height,
+            },
+        },
         "bitflip_baseline_threshold": args.bitflip_baseline,
         "saturation_threshold": args.saturation_threshold,
         "saturation_drop_threshold": args.saturation_drop_threshold,
@@ -107,9 +135,52 @@ def _parse_args() -> argparse.Namespace:
         table="ic.baseline",
         allowed_keys={"fft_window_scale"},
     )
+    si_baseline_config = table_config_values(
+        payload,
+        table="si.baseline",
+        allowed_keys={"fft_window_scale"},
+    )
+    gagg_baseline_config = table_config_values(
+        payload,
+        table="gagg.baseline",
+        allowed_keys={"fft_window_scale"},
+    )
     amplitude_config = table_config_values(
         payload,
         table="attpc.amplitude",
+        allowed_keys={
+            "peak_separation",
+            "peak_prominence",
+            "peak_width",
+            "peak_threshold",
+            "rel_height",
+        },
+    )
+    ic_amplitude_config = table_config_values(
+        payload,
+        table="ic.amplitude",
+        allowed_keys={
+            "peak_separation",
+            "peak_prominence",
+            "peak_width",
+            "peak_threshold",
+            "rel_height",
+        },
+    )
+    si_amplitude_config = table_config_values(
+        payload,
+        table="si.amplitude",
+        allowed_keys={
+            "peak_separation",
+            "peak_prominence",
+            "peak_width",
+            "peak_threshold",
+            "rel_height",
+        },
+    )
+    gagg_amplitude_config = table_config_values(
+        payload,
+        table="gagg.amplitude",
         allowed_keys={
             "peak_separation",
             "peak_prominence",
@@ -198,6 +269,18 @@ def _parse_args() -> argparse.Namespace:
         help="Baseline-removal filter scale used for IC trace preprocessing",
     )
     parser.add_argument(
+        "--si-baseline-window-scale",
+        type=float,
+        default=si_baseline_config.get("fft_window_scale", baseline_config.get("fft_window_scale")),
+        help="Baseline-removal filter scale used for Si trace preprocessing",
+    )
+    parser.add_argument(
+        "--gagg-baseline-window-scale",
+        type=float,
+        default=gagg_baseline_config.get("fft_window_scale", baseline_config.get("fft_window_scale")),
+        help="Baseline-removal filter scale used for GAGG trace preprocessing",
+    )
+    parser.add_argument(
         "--peak-separation",
         type=float,
         default=amplitude_config.get("peak_separation", 50.0),
@@ -226,6 +309,96 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=amplitude_config.get("rel_height", 0.95),
         help="Relative height used when measuring filtered amplitude peak width",
+    )
+    parser.add_argument(
+        "--ic-peak-separation",
+        type=float,
+        default=ic_amplitude_config.get("peak_separation", amplitude_config.get("peak_separation", 50.0)),
+        help="Minimum separation between IC peaks for WebUI review and histograms",
+    )
+    parser.add_argument(
+        "--ic-peak-prominence",
+        type=float,
+        default=ic_amplitude_config.get("peak_prominence", amplitude_config.get("peak_prominence", 20.0)),
+        help="Prominence of IC peaks for WebUI review and histograms",
+    )
+    parser.add_argument(
+        "--ic-peak-width",
+        type=float,
+        default=ic_amplitude_config.get("peak_width", amplitude_config.get("peak_width", 50.0)),
+        help="Maximum IC peak width for WebUI review and histograms",
+    )
+    parser.add_argument(
+        "--ic-peak-threshold",
+        type=float,
+        default=ic_amplitude_config.get("peak_threshold", amplitude_config.get("peak_threshold", 0.0)),
+        help="Minimum IC peak amplitude for WebUI review and histograms",
+    )
+    parser.add_argument(
+        "--ic-peak-rel-height",
+        type=float,
+        default=ic_amplitude_config.get("rel_height", amplitude_config.get("rel_height", 0.95)),
+        help="Relative height used when measuring IC peak width",
+    )
+    parser.add_argument(
+        "--si-peak-separation",
+        type=float,
+        default=si_amplitude_config.get("peak_separation", amplitude_config.get("peak_separation", 50.0)),
+        help="Minimum separation between Si peaks for WebUI review",
+    )
+    parser.add_argument(
+        "--si-peak-prominence",
+        type=float,
+        default=si_amplitude_config.get("peak_prominence", amplitude_config.get("peak_prominence", 20.0)),
+        help="Prominence of Si peaks for WebUI review",
+    )
+    parser.add_argument(
+        "--si-peak-width",
+        type=float,
+        default=si_amplitude_config.get("peak_width", amplitude_config.get("peak_width", 50.0)),
+        help="Maximum Si peak width for WebUI review",
+    )
+    parser.add_argument(
+        "--si-peak-threshold",
+        type=float,
+        default=si_amplitude_config.get("peak_threshold", amplitude_config.get("peak_threshold", 0.0)),
+        help="Minimum Si peak amplitude for WebUI review",
+    )
+    parser.add_argument(
+        "--si-peak-rel-height",
+        type=float,
+        default=si_amplitude_config.get("rel_height", amplitude_config.get("rel_height", 0.95)),
+        help="Relative height used when measuring Si peak width",
+    )
+    parser.add_argument(
+        "--gagg-peak-separation",
+        type=float,
+        default=gagg_amplitude_config.get("peak_separation", amplitude_config.get("peak_separation", 50.0)),
+        help="Minimum separation between GAGG peaks for WebUI review",
+    )
+    parser.add_argument(
+        "--gagg-peak-prominence",
+        type=float,
+        default=gagg_amplitude_config.get("peak_prominence", amplitude_config.get("peak_prominence", 20.0)),
+        help="Prominence of GAGG peaks for WebUI review",
+    )
+    parser.add_argument(
+        "--gagg-peak-width",
+        type=float,
+        default=gagg_amplitude_config.get("peak_width", amplitude_config.get("peak_width", 50.0)),
+        help="Maximum GAGG peak width for WebUI review",
+    )
+    parser.add_argument(
+        "--gagg-peak-threshold",
+        type=float,
+        default=gagg_amplitude_config.get("peak_threshold", amplitude_config.get("peak_threshold", 0.0)),
+        help="Minimum GAGG peak amplitude for WebUI review",
+    )
+    parser.add_argument(
+        "--gagg-peak-rel-height",
+        type=float,
+        default=gagg_amplitude_config.get("rel_height", amplitude_config.get("rel_height", 0.95)),
+        help="Relative height used when measuring GAGG peak width",
     )
     parser.add_argument(
         "--bitflip-baseline",

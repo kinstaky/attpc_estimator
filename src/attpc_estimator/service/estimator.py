@@ -41,6 +41,13 @@ from .traces.payload import serialize_trace_metadata, serialize_trace_payload
 ReviewSource = Literal["label_set", "filter_file", "event_trace"]
 SessionMode = Literal["label", "label_review", "review"]
 logger = logging.getLogger("attpc_estimator.estimator")
+PEAK_CONFIG_KEYS = (
+    "peak_separation",
+    "peak_prominence",
+    "peak_width",
+    "peak_threshold",
+    "peak_rel_height",
+)
 
 
 @dataclass(slots=True)
@@ -143,11 +150,13 @@ class EstimatorService:
         workspace: Path,
         baseline_window_scale: float = 10.0,
         ic_baseline_window_scale: float | None = None,
+        detector_baseline_window_scales: dict[str, float] | None = None,
         peak_separation: float = 50.0,
         peak_prominence: float = 20.0,
         peak_width: float = 50.0,
         peak_threshold: float = 0.0,
         peak_rel_height: float = 0.95,
+        detector_peak_configs: dict[str, dict[str, float]] | None = None,
         bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
         saturation_threshold: float = 2000.0,
         saturation_drop_threshold: float = 10.0,
@@ -168,11 +177,24 @@ class EstimatorService:
             if ic_baseline_window_scale is None
             else float(ic_baseline_window_scale)
         )
+        self.detector_baseline_window_scales = self._build_detector_baseline_window_scales(
+            baseline_window_scale=baseline_window_scale,
+            ic_baseline_window_scale=self.ic_baseline_window_scale,
+            detector_baseline_window_scales=detector_baseline_window_scales,
+        )
         self.peak_separation = peak_separation
         self.peak_prominence = peak_prominence
         self.peak_width = peak_width
         self.peak_threshold = peak_threshold
         self.peak_rel_height = peak_rel_height
+        self.detector_peak_configs = self._build_detector_peak_configs(
+            peak_separation=peak_separation,
+            peak_prominence=peak_prominence,
+            peak_width=peak_width,
+            peak_threshold=peak_threshold,
+            peak_rel_height=peak_rel_height,
+            detector_peak_configs=detector_peak_configs,
+        )
         self.bitflip_baseline_threshold = bitflip_baseline_threshold
         self.ransac_config = ransac_config
         self.merge_config = merge_config
@@ -190,6 +212,8 @@ class EstimatorService:
             peak_width=peak_width,
             peak_threshold=peak_threshold,
             peak_rel_height=peak_rel_height,
+            detector_baseline_window_scales=self.detector_baseline_window_scales,
+            detector_peak_configs=self.detector_peak_configs,
             bitflip_baseline_threshold=bitflip_baseline_threshold,
             saturation_threshold=saturation_threshold,
             saturation_drop_threshold=saturation_drop_threshold,
@@ -726,17 +750,18 @@ class EstimatorService:
         event_id_range = (
             source.event_id_range() if isinstance(source, DirectTraceSource) else None
         )
+        peak_config = self._peak_config_for(record.detector)
         return serialize_trace_payload(
             record,
             bitflip_baseline_threshold=self.bitflip_baseline_threshold,
             label=label,
             review_progress=source.get_progress(),
             include_run=True,
-            peak_separation=self.peak_separation,
-            peak_prominence=self.peak_prominence,
-            peak_width=self.peak_width,
-            peak_threshold=self.peak_threshold,
-            peak_rel_height=self.peak_rel_height,
+            peak_separation=peak_config["peak_separation"],
+            peak_prominence=peak_config["peak_prominence"],
+            peak_width=peak_config["peak_width"],
+            peak_threshold=peak_config["peak_threshold"],
+            peak_rel_height=peak_config["peak_rel_height"],
             event_trace_count=event_trace_count,
             event_id_range=event_id_range,
             trace_selector=(
@@ -829,16 +854,72 @@ class EstimatorService:
                 self.run_files[run],
                 run=run,
                 labels=labels,
-                baseline_window_scale=(
-                    self.ic_baseline_window_scale
-                    if detector == DETECTOR_IC
-                    else self.baseline_window_scale
-                ),
+                baseline_window_scale=self._baseline_window_scale_for(detector),
                 detector=detector,
                 filter_item=filter_item,
                 filter_value=filter_value,
             )
         raise ValueError(f"unsupported source key: {key!r}")
+
+    @staticmethod
+    def _build_detector_baseline_window_scales(
+        *,
+        baseline_window_scale: float,
+        ic_baseline_window_scale: float,
+        detector_baseline_window_scales: dict[str, float] | None,
+    ) -> dict[str, float]:
+        scales = {
+            DETECTOR_ATTPC: float(baseline_window_scale),
+            DETECTOR_IC: float(ic_baseline_window_scale),
+            DETECTOR_SI: float(baseline_window_scale),
+            DETECTOR_GAGG: float(baseline_window_scale),
+        }
+        for detector, value in (detector_baseline_window_scales or {}).items():
+            scales[normalize_detector(detector)] = float(value)
+        return scales
+
+    @staticmethod
+    def _build_detector_peak_configs(
+        *,
+        peak_separation: float,
+        peak_prominence: float,
+        peak_width: float,
+        peak_threshold: float,
+        peak_rel_height: float,
+        detector_peak_configs: dict[str, dict[str, float]] | None,
+    ) -> dict[str, dict[str, float]]:
+        default_config = {
+            "peak_separation": float(peak_separation),
+            "peak_prominence": float(peak_prominence),
+            "peak_width": float(peak_width),
+            "peak_threshold": float(peak_threshold),
+            "peak_rel_height": float(peak_rel_height),
+        }
+        configs = {
+            detector: dict(default_config)
+            for detector in (
+                DETECTOR_ATTPC,
+                DETECTOR_IC,
+                DETECTOR_SI,
+                DETECTOR_GAGG,
+            )
+        }
+        for detector, values in (detector_peak_configs or {}).items():
+            resolved = normalize_detector(detector)
+            for key in PEAK_CONFIG_KEYS:
+                if key in values:
+                    configs[resolved][key] = float(values[key])
+        return configs
+
+    def _baseline_window_scale_for(self, detector: str | None) -> float:
+        return float(
+            self.detector_baseline_window_scales[
+                normalize_detector(detector)
+            ]
+        )
+
+    def _peak_config_for(self, detector: str | None) -> dict[str, float]:
+        return self.detector_peak_configs[normalize_detector(detector)]
 
     def _restore_saved_state(self) -> None:
         payload = self.ui_state_store.load()
