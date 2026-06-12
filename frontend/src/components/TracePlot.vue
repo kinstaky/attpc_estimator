@@ -15,7 +15,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { loadPlotly } from "../lib/plotly";
 
@@ -29,6 +29,57 @@ const secondaryRoot = ref(null);
 const tertiaryRoot = ref(null);
 let syncingCurvatureRange = false;
 let curvatureRange = null;
+
+function shouldClipCompatTrace(trace) {
+  if (!trace || trace.detector !== "GAGG" || trace.traceId >= 16) {
+    return false;
+  }
+  if (!Array.isArray(trace.raw) || trace.raw.length < 256) {
+    return false;
+  }
+  return trace.raw[128] === 0 && trace.raw[192] === 0 && trace.raw[255] === 0;
+}
+
+function clipPeakAnalysis(analysis, sampleCount) {
+  if (!analysis) {
+    return null;
+  }
+  const kept = analysis.peakIndices
+    .map((peakIndex, index) => ({ peakIndex, index }))
+    .filter(({ peakIndex }) => peakIndex < sampleCount)
+    .map(({ index }) => index);
+  return {
+    peakIndices: kept.map((index) => analysis.peakIndices[index]),
+    leftIndices: kept.map((index) => analysis.leftIndices[index]),
+    rightIndices: kept.map((index) => analysis.rightIndices[index]),
+    peakCount: kept.length,
+  };
+}
+
+const displayTrace = computed(() => {
+  const trace = props.trace;
+  if (!shouldClipCompatTrace(trace)) {
+    return trace;
+  }
+  const sampleCount = 128;
+  return {
+    ...trace,
+    raw: trace.raw.slice(0, sampleCount),
+    trace: trace.trace.slice(0, sampleCount),
+    bitflipAnalysis: trace.bitflipAnalysis
+      ? {
+          ...trace.bitflipAnalysis,
+          xIndices: trace.bitflipAnalysis.xIndices.slice(0, sampleCount),
+          firstDerivative: trace.bitflipAnalysis.firstDerivative.slice(0, sampleCount),
+          secondDerivative: trace.bitflipAnalysis.secondDerivative.slice(0, sampleCount),
+          structures: (trace.bitflipAnalysis.structures || []).filter(
+            (structure) => structure.startBaselineIndex < sampleCount,
+          ),
+        }
+      : trace.bitflipAnalysis,
+    peakAnalysis: clipPeakAnalysis(trace.peakAnalysis, sampleCount),
+  };
+});
 
 function sampleIndices(values) {
   return values.map((_, index) => index);
@@ -68,14 +119,15 @@ async function renderRawPlot(root) {
     return;
   }
   const Plotly = await loadPlotly();
+  const trace = displayTrace.value;
   Plotly.react(
     root,
     [
       {
         type: "scatter",
         mode: "lines",
-        x: sampleIndices(props.trace.raw),
-        y: props.trace.raw,
+        x: sampleIndices(trace.raw),
+        y: trace.raw,
         line: {
           color: "#174f40",
           width: 2,
@@ -86,7 +138,7 @@ async function renderRawPlot(root) {
     {
       ...baseLayout(),
       title: { text: "Raw Trace", x: 0.02, xanchor: "left" },
-      xaxis: sampleAxis(props.trace.raw.length),
+      xaxis: sampleAxis(trace.raw.length),
       yaxis: {
         title: "Amplitude",
         zeroline: false,
@@ -103,6 +155,7 @@ async function renderTimeDomainPlot(root) {
     return;
   }
   const Plotly = await loadPlotly();
+  const trace = displayTrace.value;
 
   Plotly.react(
     root,
@@ -110,8 +163,8 @@ async function renderTimeDomainPlot(root) {
       {
         type: "scatter",
         mode: "lines",
-        x: sampleIndices(props.trace.raw),
-        y: props.trace.raw,
+        x: sampleIndices(trace.raw),
+        y: trace.raw,
         line: {
           color: "#b46b2f",
           width: 1.8,
@@ -121,8 +174,8 @@ async function renderTimeDomainPlot(root) {
       {
         type: "scatter",
         mode: "lines",
-        x: sampleIndices(props.trace.trace),
-        y: props.trace.trace,
+        x: sampleIndices(trace.trace),
+        y: trace.trace,
         line: {
           color: "#174f40",
           width: 2.2,
@@ -140,7 +193,7 @@ async function renderTimeDomainPlot(root) {
         y: 1.16,
       },
       xaxis: sampleAxis(
-        props.trace.trace.length,
+        trace.trace.length,
         props.visualMode === "curvature" ? curvatureRange : null,
       ),
       yaxis: {
@@ -158,14 +211,15 @@ async function renderFrequencyPlot(root) {
     return;
   }
   const Plotly = await loadPlotly();
+  const trace = displayTrace.value;
   Plotly.react(
     root,
     [
       {
         type: "scatter",
         mode: "lines",
-        x: sampleIndices(props.trace.transformed),
-        y: props.trace.transformed,
+        x: sampleIndices(trace.transformed),
+        y: trace.transformed,
         line: {
           color: "#3b5ba9",
           width: 2,
@@ -199,7 +253,8 @@ async function renderPeakPlot(root) {
     return;
   }
   const Plotly = await loadPlotly();
-  const analysis = props.trace.peakAnalysis || {
+  const trace = displayTrace.value;
+  const analysis = trace.peakAnalysis || {
     peakIndices: [],
     leftIndices: [],
     rightIndices: [],
@@ -209,8 +264,8 @@ async function renderPeakPlot(root) {
     {
       type: "scatter",
       mode: "lines",
-      x: sampleIndices(props.trace.trace),
-      y: props.trace.trace,
+      x: sampleIndices(trace.trace),
+      y: trace.trace,
       line: {
         color: "#174f40",
         width: 2.2,
@@ -223,7 +278,7 @@ async function renderPeakPlot(root) {
       type: "scatter",
       mode: "markers",
       x: analysis.peakIndices,
-      y: analysis.peakIndices.map((index) => props.trace.trace[index]),
+      y: analysis.peakIndices.map((index) => trace.trace[index]),
       marker: {
         color: "#a84a24",
         size: 9,
@@ -234,7 +289,7 @@ async function renderPeakPlot(root) {
       type: "scatter",
       mode: "markers",
       x: analysis.leftIndices,
-      y: analysis.leftIndices.map((index) => props.trace.trace[index]),
+      y: analysis.leftIndices.map((index) => trace.trace[index]),
       marker: {
         color: "#3b5ba9",
         size: 8,
@@ -246,7 +301,7 @@ async function renderPeakPlot(root) {
       type: "scatter",
       mode: "markers",
       x: analysis.rightIndices,
-      y: analysis.rightIndices.map((index) => props.trace.trace[index]),
+      y: analysis.rightIndices.map((index) => trace.trace[index]),
       marker: {
         color: "#6a4c93",
         size: 8,
@@ -271,7 +326,7 @@ async function renderPeakPlot(root) {
         xanchor: "right",
         y: 1.18,
       },
-      xaxis: sampleAxis(props.trace.trace.length),
+      xaxis: sampleAxis(trace.trace.length),
       yaxis: {
         title: "Amplitude",
         zeroline: false,
@@ -294,6 +349,7 @@ async function bindCurvatureRangeSync() {
     return;
   }
   const Plotly = await loadPlotly();
+  const trace = displayTrace.value;
   clearRelayoutSyncHandlers();
 
   const syncTarget = async (target, eventData) => {
@@ -305,7 +361,7 @@ async function bindCurvatureRangeSync() {
       syncingCurvatureRange = true;
       await Plotly.relayout(target, {
         "xaxis.range[0]": 0,
-        "xaxis.range[1]": Math.max(0, props.trace.trace.length - 1),
+        "xaxis.range[1]": Math.max(0, trace.trace.length - 1),
       });
       syncingCurvatureRange = false;
       return;
@@ -341,7 +397,8 @@ async function renderFirstDerivativePlot(root) {
     return;
   }
   const Plotly = await loadPlotly();
-  const analysis = props.trace.bitflipAnalysis;
+  const trace = displayTrace.value;
+  const analysis = trace.bitflipAnalysis;
 
   Plotly.react(
     root,
@@ -378,7 +435,8 @@ async function renderSecondDerivativePlot(root) {
     return;
   }
   const Plotly = await loadPlotly();
-  const analysis = props.trace.bitflipAnalysis;
+  const trace = displayTrace.value;
+  const analysis = trace.bitflipAnalysis;
   const structureWaveformXs = [];
   const structureWaveformYs = [];
   const structureMarkerXs = [];

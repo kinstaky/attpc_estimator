@@ -100,13 +100,23 @@ def process_run(
 	d2: list[SiliconEvent] = []
 	runs: list[int] = []
 	event_ids: list[int] = []
-	for event_id in range(min_event, max_event + 1):
+	for event_id in range(0, max_event + 1):
 		if int(event_id * 100 / max_event) > last_percentage:
 			last_percentage = int(event_id * 100 / max_event)
 			reporter.report_progress(current=last_percentage)
+		if event_id < min_event:
+			runs.append(run)
+			event_ids.append(-1)
+			d1.append(SiliconEvent())
+			d2.append(SiliconEvent())
+			continue
 		try:
 			trace = trace_reader.read_event(event_id)
 		except LookupError:
+			runs.append(run)
+			event_ids.append(-1)
+			d1.append(SiliconEvent())
+			d2.append(SiliconEvent())
 			continue
 		meta, si_event = trace["si"]
 		si_data = si_event[:]
@@ -134,6 +144,8 @@ def process_run(
 			amplitude = float(row[1])
 			integral = float(row[2])
 			time = float(row[3])
+			if (time < 89 or time > 99) and not (run == 5152 or run == 5160):
+				continue
 			if side == 0:
 				d1_event.front_strip.append(strip)
 				d1_event.front_energy.append(amplitude)

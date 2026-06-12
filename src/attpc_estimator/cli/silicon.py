@@ -45,8 +45,7 @@ def _parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"-r",
 		"--run",
-		action="append",
-		type=parse_run,
+		required="run" not in config,
 		default=config.get("run"),
 		help="Run identifier to process. May be repeated.",
 	)

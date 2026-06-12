@@ -5,9 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from attpc_storage.hdf5 import PointcloudReader
-
 from ..process.progress import ProgressReporter, emit_progress
+from ..storage.pointcloud_compat import CompatPointcloudReader
 from ..storage.run_paths import pointcloud_run_path
 from .line_distance import _bin_centers
 from .line_pipeline import (
@@ -84,7 +83,7 @@ def build_line_property_histograms(
     accepted_line_total = 0
     valid_half_ratio_total = 0
 
-    reader = PointcloudReader(
+    reader = CompatPointcloudReader(
         workspace=str(pointcloud_file_path.parent.parent),
         run=run,
         path=str(pointcloud_file_path),
@@ -96,7 +95,7 @@ def build_line_property_histograms(
         for event_id in range(event_range[0], event_range[1] + 1):
             try:
                 _, event = reader.read_event(event_id)
-            except (KeyError, ValueError):
+            except (KeyError, LookupError, ValueError):
                 continue
             rows = np.asarray(event, dtype=np.float64)
             if rows.ndim != 2 or rows.shape[1] < 4:

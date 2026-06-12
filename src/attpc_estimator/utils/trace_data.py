@@ -38,6 +38,7 @@ SI_CODE_TO_SIDE = {value: key for key, value in SI_SIDE_TO_CODE.items()}
 GAGG_LAYER_1_COUNT = 25
 GAGG_LAYER_2_COUNT = 16
 GAGG_TRACE_COUNT = GAGG_LAYER_1_COUNT + GAGG_LAYER_2_COUNT
+GAGG_TRACE_LENGTHS = frozenset((128, 256))
 
 
 def load_trace_record(
@@ -197,7 +198,7 @@ def trace_record_from_gagg_row(
     baseline_window_scale: float,
 ) -> TraceRecord:
     row_array = np.asarray(row, dtype=np.float32)
-    if row_array.ndim != 1 or int(row_array.shape[0]) != 256:
+    if row_array.ndim != 1 or int(row_array.shape[0]) not in GAGG_TRACE_LENGTHS:
         raise LookupError(
             f"GAGG trace {run}/{event_id}/{trace_id} has invalid shape {row_array.shape}"
         )
@@ -232,6 +233,15 @@ def normalize_detector(detector: str | None) -> str:
     if token == DETECTOR_GAGG:
         return DETECTOR_GAGG
     raise ValueError("detector must be 'ATTPC', 'IC', 'SI', or 'GAGG'")
+
+
+def is_valid_gagg_event_rows(rows: np.ndarray) -> bool:
+    rows_array = np.asarray(rows, dtype=np.float32)
+    return (
+        rows_array.ndim == 2
+        and int(rows_array.shape[0]) == GAGG_TRACE_COUNT
+        and int(rows_array.shape[1]) in GAGG_TRACE_LENGTHS
+    )
 
 
 def open_storage_trace_reader(
@@ -292,7 +302,7 @@ def load_reader_trace_record(
             baseline_window_scale=baseline_window_scale,
         )
     if resolved_detector == DETECTOR_GAGG:
-        if rows.ndim != 2 or int(rows.shape[0]) != GAGG_TRACE_COUNT or int(rows.shape[1]) != 256:
+        if not is_valid_gagg_event_rows(rows):
             raise LookupError(
                 f"GAGG event {run}/{event_id} has invalid matrix shape {rows.shape}"
             )
@@ -348,9 +358,7 @@ def reader_event_trace_count(
     rows = np.asarray(payload, dtype=np.float32)
     if rows.ndim != 2:
         return 0
-    if resolved_detector == DETECTOR_GAGG and (
-        int(rows.shape[0]) != GAGG_TRACE_COUNT or int(rows.shape[1]) != 256
-    ):
+    if resolved_detector == DETECTOR_GAGG and not is_valid_gagg_event_rows(rows):
         return 0
     return int(rows.shape[0])
 
@@ -469,7 +477,7 @@ def gagg_trace_selector(trace_id: int) -> tuple[int, int]:
 
 def gagg_event_selector(rows: np.ndarray, trace_id: int) -> dict[str, object]:
     rows_array = np.asarray(rows, dtype=np.float32)
-    if rows_array.ndim != 2 or rows_array.shape != (GAGG_TRACE_COUNT, 256):
+    if not is_valid_gagg_event_rows(rows_array):
         raise LookupError(f"GAGG event has invalid matrix shape {rows_array.shape}")
     layer, index = gagg_trace_selector(trace_id)
     return {"kind": "gagg", "layer": layer, "index": index}
@@ -477,7 +485,7 @@ def gagg_event_selector(rows: np.ndarray, trace_id: int) -> dict[str, object]:
 
 def gagg_layer_counts(rows: np.ndarray) -> dict[str, int]:
     rows_array = np.asarray(rows, dtype=np.float32)
-    if rows_array.ndim != 2 or rows_array.shape != (GAGG_TRACE_COUNT, 256):
+    if not is_valid_gagg_event_rows(rows_array):
         raise LookupError(f"GAGG event has invalid matrix shape {rows_array.shape}")
     return {"layer1": GAGG_LAYER_1_COUNT, "layer2": GAGG_LAYER_2_COUNT}
 

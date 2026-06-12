@@ -156,6 +156,28 @@ def write_gagg_sparse_hdf5_input(path) -> None:
             frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
 
 
+def write_gagg_sparse_hdf5_input_129(path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 4
+        events.attrs["bad_events"] = np.array([2], dtype=np.int64)
+
+        for event_id in (1, 4):
+            event = events.create_group(f"event_{event_id}")
+            frib = event.create_group("frib_physics")
+            data_1903 = np.arange(9 * 256, dtype=np.float32).reshape(9, 256) + (event_id * 100.0)
+            data_1904 = np.arange(8 * 256, dtype=np.float32).reshape(8, 256) + (event_id * 200.0)
+            data_1905 = np.arange(7 * 256, dtype=np.float32).reshape(7, 256) + (event_id * 300.0)
+            data_1906 = np.arange(16 * 129, dtype=np.float32).reshape(16, 129) + (event_id * 400.0)
+            frib.create_dataset("1903", data=data_1903)
+            frib.create_dataset("1904", data=data_1904)
+            frib.create_dataset("1905", data=data_1905)
+            frib.create_dataset("1906", data=data_1906)
+            frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
+
+
 def write_pointcloud_input(path) -> None:
     with h5py.File(path, "w") as handle:
         cloud = handle.create_group("cloud")
@@ -605,6 +627,42 @@ def test_direct_review_mode_supports_gagg_event_and_trace_navigation(tmp_path) -
     next_event = service.next_event()
     assert (next_event["eventId"], next_event["traceId"]) == (4, 25)
     assert next_event["eventContext"]["previous"]["eventId"] == 1
+
+
+def test_direct_review_mode_supports_gagg_trace_id_with_padded_129_input(tmp_path) -> None:
+    trace_path = tmp_path / "run_0019.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_gagg_sparse_hdf5_input_129(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+
+    payload = service.set_session(
+        mode="review",
+        run=19,
+        detector="GAGG",
+        source="event_trace",
+        event_id=1,
+        trace_id=24,
+    )
+
+    first = payload["trace"]
+    assert payload["session"]["detector"] == "GAGG"
+    assert payload["session"]["traceId"] == 24
+    assert first["detector"] == "GAGG"
+    assert first["eventId"] == 1
+    assert first["traceId"] == 24
+    assert first["eventTraceCount"] == 41
+    assert len(first["raw"]) == 256
+    assert len(first["trace"]) == 256
+    assert first["traceSelector"] == {
+        "kind": "gagg",
+        "layer": 1,
+        "index": 24,
+    }
+
+    next_trace = service.next_trace()
+    assert (next_trace["eventId"], next_trace["traceId"]) == (1, 25)
 
 
 def test_review_mode_rejects_empty_selection(tmp_path) -> None:

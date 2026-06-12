@@ -348,6 +348,12 @@ const metricOptions = computed(() => {
     ];
   }
   if (store.state.selectedDetector === "SI" || store.state.selectedDetector === "GAGG") {
+    if (store.state.selectedDetector === "SI") {
+      return [
+        { title: "Time", value: "time" },
+        { title: "Baseline", value: "baseline" },
+      ];
+    }
     return [{ title: "Baseline", value: "baseline" }];
   }
   return [

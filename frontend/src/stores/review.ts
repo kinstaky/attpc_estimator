@@ -15,7 +15,6 @@ import type {
   DetectorName,
   ReviewUiState,
   SessionResponse,
-  SiliconSide,
   TracePayload,
 } from "../types";
 
@@ -35,19 +34,12 @@ interface ReviewState {
   traceId: number | null;
   filterItem: DirectFilterItem;
   filterValue: number | null;
-  siSide: SiliconSide;
-  siIndex: number | null;
-  gaggLayer: 1 | 2;
-  gaggIndex: number | null;
   currentTrace: TracePayload | null;
   visualMode: VisualMode;
   loading: boolean;
   error: string;
   statusMessage: string;
 }
-
-const DEFAULT_SI_SIDE: SiliconSide = "upstream_front";
-const DEFAULT_GAGG_LAYER: 1 | 2 = 1;
 
 const state = reactive<ReviewState>({
   source: "label_set",
@@ -60,10 +52,6 @@ const state = reactive<ReviewState>({
   traceId: 0,
   filterItem: "none",
   filterValue: null,
-  siSide: DEFAULT_SI_SIDE,
-  siIndex: 0,
-  gaggLayer: DEFAULT_GAGG_LAYER,
-  gaggIndex: 0,
   currentTrace: null,
   visualMode: "cdf",
   loading: false,
@@ -117,21 +105,6 @@ function ensureDirectSourceDefaults(): void {
     state.traceId = 0;
     return;
   }
-  if (state.detector === "SI") {
-    if (!state.siSide) {
-      state.siSide = DEFAULT_SI_SIDE;
-    }
-    if (state.siIndex === null || state.siIndex < 0) {
-      state.siIndex = 0;
-    }
-  } else if (state.detector === "GAGG") {
-    if (state.gaggLayer !== 1 && state.gaggLayer !== 2) {
-      state.gaggLayer = DEFAULT_GAGG_LAYER;
-    }
-    if (state.gaggIndex === null || state.gaggIndex < 0) {
-      state.gaggIndex = 0;
-    }
-  }
   if (state.traceId === null || state.traceId < 0) {
     state.traceId = 0;
   }
@@ -151,12 +124,6 @@ function setDetector(detector: DetectorName): void {
   state.detector = normalizeDirectDetector(detector);
   if (state.detector === "IC") {
     state.traceId = 0;
-  } else if (state.detector === "SI") {
-    state.siSide = DEFAULT_SI_SIDE;
-    state.siIndex = 0;
-  } else if (state.detector === "GAGG") {
-    state.gaggLayer = DEFAULT_GAGG_LAYER;
-    state.gaggIndex = 0;
   }
   state.currentTrace = null;
   clearTransientUi();
@@ -216,31 +183,6 @@ function setTraceId(traceId: number | string | null): void {
     return;
   }
   state.traceId = Number(traceId);
-}
-
-function setSiSide(side: SiliconSide): void {
-  state.siSide = side;
-}
-
-function setSiIndex(index: number | string | null): void {
-  if (index === null || index === "") {
-    state.siIndex = null;
-    return;
-  }
-  state.siIndex = Number(index);
-}
-
-function setGaggLayer(layer: number | string | null): void {
-  const numeric = Number(layer);
-  state.gaggLayer = numeric === 2 ? 2 : 1;
-}
-
-function setGaggIndex(index: number | string | null): void {
-  if (index === null || index === "") {
-    state.gaggIndex = null;
-    return;
-  }
-  state.gaggIndex = Number(index);
 }
 
 function setVisualMode(mode: VisualMode): void {
@@ -350,24 +292,14 @@ async function loadReviewSet(): Promise<void> {
       if (state.run === null || state.eventId === null) {
         throw new Error("Select a run and event id before loading review.");
       }
-      if (state.detector === "ATTPC" && state.traceId === null) {
+      if (state.detector !== "IC" && state.traceId === null) {
         throw new Error("Select a run, event id, and trace id before loading review.");
-      }
-      if (state.detector === "SI" && state.siIndex === null) {
-        throw new Error("Select a silicon side and index before loading review.");
-      }
-      if (state.detector === "GAGG" && state.gaggIndex === null) {
-        throw new Error("Select a GAGG layer and index before loading review.");
       }
       payload = await setEventTraceReviewSession({
         run: state.run,
         eventId: state.eventId,
         detector: state.detector,
         traceId: state.detector === "IC" ? 0 : state.traceId,
-        siSide: state.detector === "SI" ? state.siSide : null,
-        siIndex: state.detector === "SI" ? state.siIndex : null,
-        gaggLayer: state.detector === "GAGG" ? state.gaggLayer : null,
-        gaggIndex: state.detector === "GAGG" ? state.gaggIndex : null,
         filterItem: state.filterItem,
         filterValue: state.filterItem === "max" ? state.filterValue : null,
       });
@@ -469,16 +401,6 @@ function syncDirectSelectionFromTrace(trace: TracePayload | null): void {
   state.detector = normalizeDirectDetector(trace.detector);
   if (state.detector === "IC") {
     state.traceId = 0;
-    return;
-  }
-  if (trace.traceSelector?.kind === "si") {
-    state.siSide = trace.traceSelector.side;
-    state.siIndex = trace.traceSelector.index;
-    return;
-  }
-  if (trace.traceSelector?.kind === "gagg") {
-    state.gaggLayer = trace.traceSelector.layer;
-    state.gaggIndex = trace.traceSelector.index;
   }
 }
 
@@ -537,10 +459,6 @@ export function useReviewStore() {
     setFilterValue,
     setEventId,
     setTraceId,
-    setSiSide,
-    setSiIndex,
-    setGaggLayer,
-    setGaggIndex,
     setVisualMode,
     toggleVisualMode,
     applyUiState,

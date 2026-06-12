@@ -61,6 +61,8 @@ class DummyMergedService:
         si_index: int | None = None,
         gagg_layer: int | None = None,
         gagg_index: int | None = None,
+        filter_item: str | None = None,
+        filter_value: float | None = None,
     ) -> dict:
         return {
             "session": {
@@ -77,6 +79,8 @@ class DummyMergedService:
                 "siIndex": si_index,
                 "gaggLayer": gagg_layer,
                 "gaggIndex": gagg_index,
+                "filterItem": filter_item,
+                "filterValue": filter_value,
             }
         }
 
@@ -92,6 +96,9 @@ class DummyMergedService:
     def current_pointcloud_event(self) -> dict:
         return {"run": 8, "eventId": 7}
 
+    def get_pointcloud_event(self, *, run: int, event_id: int) -> dict:
+        return {"run": run, "eventId": event_id}
+
     def previous_trace(self) -> dict:
         raise LookupError("no previous trace")
 
@@ -106,6 +113,9 @@ class DummyMergedService:
 
     def previous_pointcloud_event(self) -> dict:
         raise LookupError("no previous browse pointcloud event")
+
+    def get_pointcloud_traces(self, *, run: int, event_id: int, trace_ids: list[int]) -> dict:
+        return {"run": run, "eventId": event_id, "traces": [{"traceId": trace_id} for trace_id in trace_ids]}
 
     def next_event(self) -> dict:
         return {"run": 8, "eventId": 2, "traceId": 0}
@@ -123,8 +133,8 @@ class DummyMergedService:
 
     def assign_pointcloud_label(self, *, event_id: int, label: str) -> dict:
         return {
-            "eventId": event_id,
-            "label": label,
+            "pointcloudSummary": [{"bucket": label, "title": f"{label} lines", "count": 1}],
+            "currentLabel": label,
         }
 
     def get_strange_labels(self) -> dict:
@@ -223,6 +233,40 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
                 "siIndex": None,
                 "gaggLayer": None,
                 "gaggIndex": None,
+                "filterItem": None,
+                "filterValue": None,
+            }
+        }
+
+        gagg_session = client.post(
+            "/api/session",
+            json={
+                "mode": "review",
+                "run": 8,
+                "detector": "GAGG",
+                "source": "event_trace",
+                "eventId": 4,
+                "traceId": 24,
+            },
+        )
+        assert gagg_session.status_code == 200
+        assert gagg_session.json() == {
+            "session": {
+                "mode": "review",
+                "run": 8,
+                "detector": "GAGG",
+                "source": "event_trace",
+                "family": None,
+                "label": None,
+                "filterFile": None,
+                "eventId": 4,
+                "traceId": 24,
+                "siSide": None,
+                "siIndex": None,
+                "gaggLayer": None,
+                "gaggIndex": None,
+                "filterItem": None,
+                "filterValue": None,
             }
         }
 
@@ -238,6 +282,44 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
         previous_event = client.post("/api/traces/previous-event")
         assert previous_event.status_code == 404
         assert previous_event.json() == {"detail": "no previous event"}
+
+        assert client.get("/api/pointcloud/event", params={"run": 8, "eventId": 3}).json() == {
+            "run": 8,
+            "eventId": 3,
+        }
+        assert client.get("/api/pointcloud/current").json() == {"run": 8, "eventId": 7}
+        assert client.post("/api/pointcloud/next").json() == {"run": 8, "eventId": 8}
+        previous_pointcloud = client.post("/api/pointcloud/previous")
+        assert previous_pointcloud.status_code == 404
+        assert previous_pointcloud.json() == {"detail": "no previous browse pointcloud event"}
+        assert client.post(
+            "/api/pointcloud/traces",
+            json={"run": 8, "eventId": 3, "traceIds": [1, 4]},
+        ).json() == {
+            "run": 8,
+            "eventId": 3,
+            "traces": [{"traceId": 1}, {"traceId": 4}],
+        }
+        assert client.get("/api/pointcloud-label/current").json() == {
+            "run": 8,
+            "eventId": 4,
+            "currentLabel": None,
+        }
+        assert client.post("/api/pointcloud-label/next").json() == {
+            "run": 8,
+            "eventId": 5,
+            "currentLabel": "2",
+        }
+        previous_pointcloud_label = client.post("/api/pointcloud-label/previous")
+        assert previous_pointcloud_label.status_code == 404
+        assert previous_pointcloud_label.json() == {"detail": "no previous pointcloud event"}
+        assert client.post(
+            "/api/pointcloud-label/assign",
+            json={"eventId": 4, "label": "2"},
+        ).json() == {
+            "pointcloudSummary": [{"bucket": "2", "title": "2 lines", "count": 1}],
+            "currentLabel": "2",
+        }
 
         assign = client.post(
             "/api/labels/assign",

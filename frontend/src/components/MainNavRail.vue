@@ -110,6 +110,7 @@ const items = computed(() => {
       icon: "mdi-pencil-box-outline",
       children: [
         { to: "/label/trace", title: "Trace", icon: "mdi-waveform" },
+        { to: "/label/pointcloud", title: "Pointcloud", icon: "mdi-vector-polyline" },
       ],
     },
     {
@@ -117,6 +118,7 @@ const items = computed(() => {
       icon: "mdi-file-search-outline",
       children: [
         { to: "/browse/trace", title: "Trace", icon: "mdi-waveform" },
+        { to: "/browse/pointcloud", title: "Pointcloud", icon: "mdi-vector-polyline" },
       ],
     },
     { to: "/mapping", title: "Mapping", icon: "mdi-grid" },

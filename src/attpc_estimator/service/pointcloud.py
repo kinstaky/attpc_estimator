@@ -8,13 +8,15 @@ from typing import Any
 
 import numpy as np
 
-# from attpc_storage.hdf5 import PointcloudReader, RawTraceReader
-
 from ..process.line_pipeline import (
     MergeConfig,
     RansacConfig,
     extract_line_clusters,
     merge_line_clusters,
+)
+from ..storage.pointcloud_compat import (
+    CompatPointcloudReader,
+    CompatRawTraceReader,
 )
 from ..storage.run_paths import collect_run_files, pointcloud_dir, resolve_run_file
 from ..utils.trace_data import preprocess_traces
@@ -169,8 +171,8 @@ class PointcloudService:
         self.event_prefetch_radius = max(0, int(event_prefetch_radius))
         self.trace_files = collect_run_files(trace_path)
         self.pointcloud_files = collect_run_files(pointcloud_dir(workspace))
-        self._trace_readers: dict[int, RawTraceReader] = {}
-        self._pointcloud_readers: dict[int, PointcloudReader] = {}
+        self._trace_readers: dict[int, CompatRawTraceReader] = {}
+        self._pointcloud_readers: dict[int, CompatPointcloudReader] = {}
         self._processing_cache: dict[int, dict[str, float]] = {}
         self._event_ranges = self._collect_event_ranges()
         self._prefetcher = _PointcloudPrefetcher(self._load_event_hits)
@@ -308,7 +310,7 @@ class PointcloudService:
         for run in self.pointcloud_files:
             try:
                 ranges[int(run)] = self._pointcloud_reader(run).get_range()
-            except (KeyError, ValueError):
+            except (KeyError, LookupError, ValueError):
                 continue
         return ranges
 
@@ -322,10 +324,10 @@ class PointcloudService:
             raise LookupError(f"pointcloud event not found: {run}/{event_id}")
         return event_range
 
-    def _pointcloud_reader(self, run: int) -> PointcloudReader:
+    def _pointcloud_reader(self, run: int) -> CompatPointcloudReader:
         reader = self._pointcloud_readers.get(run)
         if reader is None:
-            reader = PointcloudReader(
+            reader = CompatPointcloudReader(
                 workspace=str(self.workspace),
                 run=run,
                 path=str(self.pointcloud_files[run]),
@@ -333,7 +335,7 @@ class PointcloudService:
             self._pointcloud_readers[run] = reader
         return reader
 
-    def _trace_reader(self, run: int) -> RawTraceReader:
+    def _trace_reader(self, run: int) -> CompatRawTraceReader:
         reader = self._trace_readers.get(run)
         if reader is None:
             trace_file = self.trace_files.get(run)
@@ -343,7 +345,7 @@ class PointcloudService:
                 except ValueError as exc:
                     raise LookupError(f"trace run not found: {run}") from exc
                 self.trace_files[run] = trace_file
-            reader = RawTraceReader(
+            reader = CompatRawTraceReader(
                 workspace=str(self.workspace),
                 run=run,
                 path=str(trace_file),
@@ -409,7 +411,7 @@ class PointcloudService:
             return None
         try:
             _, hits = self._pointcloud_reader(run).read_event(event_id)
-        except (KeyError, ValueError):
+        except (KeyError, LookupError, ValueError):
             return None
         return self._filter_hits_by_z(run, np.asarray(hits, dtype=np.float64))
 

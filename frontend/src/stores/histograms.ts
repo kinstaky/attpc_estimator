@@ -73,7 +73,7 @@ const PHASE_METRICS: Record<HistogramPhase, HistogramMetric[]> = {
 };
 
 const IC_PHASE1_METRICS: HistogramMetric[] = ["amplitude", "time", "baseline"];
-const SI_PHASE1_METRICS: HistogramMetric[] = ["baseline"];
+const SI_PHASE1_METRICS: HistogramMetric[] = ["time", "baseline"];
 const GAGG_PHASE1_METRICS: HistogramMetric[] = ["baseline"];
 
 const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "line_property", "coplanar"]);

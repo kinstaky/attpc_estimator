@@ -4,9 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from attpc_storage.hdf5 import PointcloudReader
-
 from ..process.progress import ProgressReporter, emit_progress
+from ..storage.pointcloud_compat import CompatPointcloudReader
 from ..storage.run_paths import pointcloud_run_path
 
 DEFAULT_COPLANAR_BINS = 500
@@ -29,7 +28,7 @@ def build_coplanar_histogram(
     valid_events = 0
     threshold_counts = np.zeros(len(COPLANAR_RATIO_THRESHOLDS), dtype=np.int64)
 
-    reader = PointcloudReader(
+    reader = CompatPointcloudReader(
         workspace=str(pointcloud_file_path.parent.parent),
         run=run,
         path=str(pointcloud_file_path),
@@ -41,7 +40,7 @@ def build_coplanar_histogram(
         for event_id in range(event_range[0], event_range[1] + 1):
             try:
                 _, event = reader.read_event(event_id)
-            except (KeyError, ValueError):
+            except (KeyError, LookupError, ValueError):
                 continue
 
             ratio = coplanar_ratio(event)

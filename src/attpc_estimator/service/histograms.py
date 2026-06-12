@@ -475,7 +475,7 @@ class HistogramService:
         if detector == DETECTOR_IC:
             return metric in {"amplitude", "time", "baseline"}
         if detector == DETECTOR_SI:
-            return metric == "baseline"
+            return metric in {"baseline", "time"}
         if detector == DETECTOR_GAGG:
             return metric == "baseline"
         return False
@@ -569,8 +569,8 @@ class HistogramService:
             if mode != "all":
                 raise ValueError("IC histograms only support mode 'all'")
         if detector == DETECTOR_SI:
-            if metric != "baseline":
-                raise ValueError("SI histograms only support 'baseline'")
+            if metric not in {"baseline", "time"}:
+                raise ValueError("SI histograms only support 'baseline' and 'time'")
             if mode != "all":
                 raise ValueError("SI histograms only support mode 'all'")
         if detector == DETECTOR_GAGG:
@@ -742,6 +742,8 @@ class HistogramService:
             return self._compute_ic_time_artifact(run)
         if detector == DETECTOR_IC and metric == "baseline":
             return self._compute_ic_baseline_artifact(run)
+        if detector == DETECTOR_SI and metric == "time":
+            return self._compute_si_time_artifact(run)
         if detector == DETECTOR_SI and metric == "baseline":
             return self._compute_si_baseline_artifact(run)
         if detector == DETECTOR_GAGG and metric == "baseline":
@@ -787,20 +789,27 @@ class HistogramService:
                 detector=detector,
                 trace_count=int(np.asarray(payload["trace_count"]).item()),
             )
-        if detector in {DETECTOR_SI, DETECTOR_GAGG} and metric == "baseline":
+        if detector in {DETECTOR_SI, DETECTOR_GAGG} and metric in {"baseline", "time"}:
             label_keys = [str(value) for value in np.asarray(payload["label_keys"]).tolist()]
             label_titles = [str(value) for value in np.asarray(payload["label_titles"]).tolist()]
             trace_counts = np.asarray(payload["trace_counts"], dtype=np.int64)
             histograms = np.asarray(payload["histograms"], dtype=np.int64)
+            metadata = ONE_D_METRIC_METADATA[metric][variant]
+            bin_centers = np.asarray(payload["bin_centers"], dtype=np.float64)
+            bin_count = (
+                int(bin_centers.shape[0])
+                if detector == DETECTOR_SI and metric == "time"
+                else int(metadata["bin_count"])
+            )
             return {
-                "metric": "baseline",
+                "metric": metric,
                 "mode": "all",
                 "run": run,
                 "detector": detector,
-                "binCount": BASELINE_BIN_COUNT,
-                "binLabel": BASELINE_BIN_LABEL,
-                "countLabel": BASELINE_COUNT_LABEL,
-                "binCenters": np.asarray(payload["bin_centers"], dtype=np.float64).tolist(),
+                "binCount": bin_count,
+                "binLabel": str(metadata["bin_label"]),
+                "countLabel": str(metadata["count_label"]),
+                "binCenters": bin_centers.tolist(),
                 "series": [
                     {
                         "labelKey": label_key,
@@ -902,6 +911,64 @@ class HistogramService:
         return {
             "trace_count": np.int64(trace_count),
             "histogram": histogram,
+        }
+
+    def _compute_si_time_artifact(self, run: int) -> dict[str, Any]:
+        side_order = (
+            ("upstream_front", "Layer 0 Side front"),
+            ("upstream_back", "Layer 0 Side back"),
+            ("downstream_front", "Layer 1 Side front"),
+            ("downstream_back", "Layer 1 Side back"),
+        )
+        histograms = {
+            key: np.zeros(512, dtype=np.int64) for key, _ in side_order
+        }
+        trace_counts = {key: 0 for key, _ in side_order}
+        peak_config = self._peak_config_for(DETECTOR_SI)
+        reader = open_storage_trace_reader(
+            run=run,
+            path=str(self.run_files[run]),
+            detector=DETECTOR_SI,
+        )
+        try:
+            for event_id in range(int(reader.min_event), int(reader.max_event) + 1):
+                if reader_event_trace_count(reader, event_id, detector=DETECTOR_SI) <= 0:
+                    continue
+                rows = reader_event_rows(reader, event_id, detector=DETECTOR_SI)
+                cleaned = preprocess_traces(
+                    np.asarray(rows[:, 2:], dtype=np.float32),
+                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_SI),
+                )
+                counts = si_side_counts(rows)
+                for key, _title in side_order:
+                    count = counts[key]
+                    if count > 0:
+                        side_code = SI_SIDE_TO_CODE[key]
+                        side_mask = np.asarray(rows[:, 0] == side_code, dtype=bool)
+                        side_traces = cleaned[side_mask]
+                        for trace in side_traces:
+                            peaks, _ = signal.find_peaks(
+                                trace,
+                                distance=peak_config["peak_separation"],
+                                height=peak_config["peak_threshold"],
+                                prominence=peak_config["peak_prominence"],
+                                width=(1.0, peak_config["peak_width"]),
+                                rel_height=peak_config["peak_rel_height"],
+                            )
+                            for peak in peaks:
+                                histograms[key][int(np.clip(peak, 0, 511))] += 1
+                    trace_counts[key] += count
+        finally:
+            reader.close()
+        return {
+            "label_keys": np.asarray([key for key, _ in side_order], dtype=np.str_),
+            "label_titles": np.asarray([title for _, title in side_order], dtype=np.str_),
+            "trace_counts": np.asarray([trace_counts[key] for key, _ in side_order], dtype=np.int64),
+            "histograms": np.asarray(
+                [histograms[key] for key, _ in side_order],
+                dtype=np.int64,
+            ),
+            "bin_centers": np.arange(512, dtype=np.int64),
         }
 
     def _compute_ic_baseline_artifact(self, run: int) -> dict[str, Any]:

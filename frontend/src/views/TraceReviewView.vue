@@ -105,50 +105,6 @@
                 @update:model-value="review.setTraceId"
               />
             </v-col>
-            <v-col v-else-if="showSiSelector" cols="12" md="3">
-              <v-select
-                :items="siSideOptions"
-                item-title="title"
-                item-value="value"
-                label="Silicon side"
-                :model-value="review.state.siSide"
-                variant="outlined"
-                @update:model-value="review.setSiSide"
-              />
-            </v-col>
-            <v-col v-else-if="showGaggSelector" cols="12" md="3">
-              <v-select
-                :items="gaggLayerOptions"
-                item-title="title"
-                item-value="value"
-                label="GAGG layer"
-                :model-value="review.state.gaggLayer"
-                variant="outlined"
-                @update:model-value="review.setGaggLayer"
-              />
-            </v-col>
-            <v-col v-if="showSiSelector" cols="12" md="3">
-              <v-text-field
-                label="Silicon index"
-                type="number"
-                :model-value="review.state.siIndex"
-                variant="outlined"
-                :hint="selectorHintText"
-                persistent-hint
-                @update:model-value="review.setSiIndex"
-              />
-            </v-col>
-            <v-col v-else-if="showGaggSelector" cols="12" md="3">
-              <v-text-field
-                label="GAGG index"
-                type="number"
-                :model-value="review.state.gaggIndex"
-                variant="outlined"
-                :hint="selectorHintText"
-                persistent-hint
-                @update:model-value="review.setGaggIndex"
-              />
-            </v-col>
           </template>
 
           <v-col v-else cols="12" md="6">
@@ -284,9 +240,7 @@
             <v-card rounded="xl" variant="tonal">
               <v-card-text>
                 <p class="page-kicker">Detector meta</p>
-                <strong v-for="line in detectorMetaLines" :key="line" class="meta-line">
-                  {{ line }}
-                </strong>
+                <strong>{{ detectorMetaText }}</strong>
               </v-card-text>
             </v-card>
           </v-col>
@@ -365,30 +319,10 @@ const detectorOptions = [
   { title: "GAGG", value: "GAGG" },
 ];
 
-const siSideOptions = [
-  { title: "Upstream front", value: "upstream_front" },
-  { title: "Upstream back", value: "upstream_back" },
-  { title: "Downstream front", value: "downstream_front" },
-  { title: "Downstream back", value: "downstream_back" },
-];
-
-const gaggLayerOptions = [
-  { title: "Layer 1", value: 1 },
-  { title: "Layer 2", value: 2 },
-];
-
 const showDetectorSelect = computed(() => review.state.source === "event_trace");
 
 const showTraceIdInput = computed(() =>
-  review.state.source === "event_trace" && review.state.detector === "ATTPC",
-);
-
-const showSiSelector = computed(() =>
-  review.state.source === "event_trace" && review.state.detector === "SI",
-);
-
-const showGaggSelector = computed(() =>
-  review.state.source === "event_trace" && review.state.detector === "GAGG",
+  review.state.source === "event_trace" && review.state.detector !== "IC",
 );
 
 const runOptions = computed(() =>
@@ -469,44 +403,25 @@ const traceRangeText = computed(() => {
   return `Trace range: 0 .. ${trace.eventTraceCount - 1}`;
 });
 
-const selectorHintText = computed(() => {
-  const selector = review.state.currentTrace?.eventContext?.current?.selector;
-  if (review.state.detector === "SI" && selector?.kind === "si") {
-    const count = selector.sideCounts?.[review.state.siSide] ?? 0;
-    return `Index range for this side: 0 .. ${Math.max(0, count - 1)}`;
-  }
-  if (review.state.detector === "GAGG" && selector?.kind === "gagg") {
-    const count = review.state.gaggLayer === 1
-      ? selector.layerCounts?.layer1 ?? 0
-      : selector.layerCounts?.layer2 ?? 0;
-    return `Index range for this layer: 0 .. ${Math.max(0, count - 1)}`;
-  }
-  return "Load an event to see the selector range.";
-});
-
 const detectorMeta = computed(() => review.state.currentTrace?.traceMetadata ?? null);
 
 const showDetectorMetaCard = computed(() => detectorMeta.value !== null);
 
-const detectorMetaLines = computed(() => {
+const detectorMetaText = computed(() => {
   const metadata = detectorMeta.value;
   if (!metadata) {
-    return [];
+    return "";
   }
   if (metadata.kind === "attpc") {
-    return [`Pad ${metadata.padId}`];
+    return `Pad ${metadata.padId}`;
   }
   if (metadata.kind === "si") {
-    return [
-      `Layer ${metadata.layer}`,
-      `Side ${metadata.side}`,
-      `Strip ${metadata.strip}`,
-    ];
+    return `Layer ${metadata.layer} Side ${metadata.side} Strip ${metadata.strip}`;
   }
   if (metadata.kind === "gagg") {
-    return [`Layer ${metadata.layer}`, `Index ${metadata.index}`];
+    return `Layer ${metadata.layer} Index ${metadata.index}`;
   }
-  return [];
+  return "";
 });
 
 function normalizeDetector(detector) {
@@ -744,7 +659,4 @@ watch(
 </script>
 
 <style scoped>
-.meta-line {
-  display: block;
-}
 </style>

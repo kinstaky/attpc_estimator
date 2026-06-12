@@ -10,7 +10,7 @@ from attpc_storage.trace import TraceEventMetadata
 
 
 IC_COLUMN = 0
-FRIB_TRACE_WIDTH = 256
+FRIB_TRACE_LENGTHS = frozenset((128, 256))
 
 
 class TriggerType(IntEnum):
@@ -84,10 +84,10 @@ def load_ion_chamber_event(
     orig_run = int(event_group.attrs.get("orig_run", run))
     orig_event = int(event_group.attrs.get("orig_event", event_id))
     raw_trace = np.asarray(trace_matrix[:, IC_COLUMN], dtype=np.float32)
-    if raw_trace.shape[0] != FRIB_TRACE_WIDTH:
+    if int(raw_trace.shape[0]) not in FRIB_TRACE_LENGTHS:
         raise LookupError(
             f"IC event {run}/{event_id} trace has length {raw_trace.shape[0]}, "
-            f"expected {FRIB_TRACE_WIDTH}"
+            f"expected one of {sorted(FRIB_TRACE_LENGTHS)}"
         )
 
     return IonChamberEvent(
@@ -113,7 +113,7 @@ def load_ion_chamber_trace(
         if indices.size and (int(indices.min()) < 0 or int(indices.max()) > 0):
             raise LookupError(f"IC trace {run}/{event_id} is not available")
         if indices.size == 0:
-            return np.empty((0, FRIB_TRACE_WIDTH), dtype=np.float32)
+            return np.empty((0, 0), dtype=np.float32)
     event = load_ion_chamber_event(file_handle, run=run, event_id=event_id)
     return event.raw_trace[np.newaxis, :]
 

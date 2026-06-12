@@ -6,6 +6,8 @@ import type { UiStatePayload } from "../types";
 import { useHistogramStore } from "./histograms";
 import { useLabelStore } from "./label";
 import { useMappingStore } from "./mapping";
+import { usePointcloudLabelStore } from "./pointcloud_label";
+import { usePointcloudStore } from "./pointcloud";
 import { useReviewStore } from "./review";
 import { useShellStore } from "./shell";
 
@@ -17,14 +19,7 @@ function shouldRestoreRoute(): boolean {
 }
 
 export async function normalizeCurrentRoute(): Promise<void> {
-  const current = router.currentRoute.value.fullPath;
-  if (
-    current.startsWith("/pointcloud")
-    || current.startsWith("/label/pointcloud")
-    || current.startsWith("/browse/pointcloud")
-  ) {
-    await router.replace("/");
-  }
+  return;
 }
 
 export async function hydrateUiState(payload: UiStatePayload | null | undefined): Promise<void> {
@@ -33,6 +28,8 @@ export async function hydrateUiState(payload: UiStatePayload | null | undefined)
   const review = useReviewStore();
   const histograms = useHistogramStore();
   const mapping = useMappingStore();
+  const pointcloud = usePointcloudStore();
+  const pointcloudLabel = usePointcloudLabelStore();
 
   if (!payload) {
     return;
@@ -43,17 +40,12 @@ export async function hydrateUiState(payload: UiStatePayload | null | undefined)
   review.applyUiState(payload.review);
   histograms.applyUiState(payload.histograms);
   mapping.applyUiState(payload.mapping);
+  pointcloud.applyUiState(payload.pointcloud);
+  pointcloudLabel.applyUiState(payload.pointcloudLabel);
 
-  const routeDisabledInTraceOnly = Boolean(
-    payload.route?.startsWith("/pointcloud")
-    || payload.route?.startsWith("/label/pointcloud")
-    || payload.route?.startsWith("/browse/pointcloud"),
-  );
   const normalizedRoute = payload.route?.startsWith("/review")
     ? payload.route.replace("/review", "/browse/trace")
-    : routeDisabledInTraceOnly
-      ? "/"
-      : payload.route;
+    : payload.route;
 
   if (shouldRestoreRoute() && normalizedRoute && normalizedRoute !== router.currentRoute.value.path) {
     await router.replace(normalizedRoute);
@@ -70,6 +62,8 @@ export function snapshotUiState(): UiStatePayload {
   const review = useReviewStore();
   const histograms = useHistogramStore();
   const mapping = useMappingStore();
+  const pointcloud = usePointcloudStore();
+  const pointcloudLabel = usePointcloudLabelStore();
 
   return {
     route: router.currentRoute.value.fullPath,
@@ -80,6 +74,8 @@ export function snapshotUiState(): UiStatePayload {
     review: review.serializeUiState(),
     histograms: histograms.serializeUiState(),
     mapping: mapping.serializeUiState(),
+    pointcloud: pointcloud.serializeUiState(),
+    pointcloudLabel: pointcloudLabel.serializeUiState(),
   };
 }
 

@@ -86,6 +86,42 @@ def write_ic_peak_hdf5_input(path: Path) -> None:
             frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
 
 
+def _si_peak_matrix(count: int, *, center: float, strip_offset: int = 0) -> np.ndarray:
+    data = np.zeros((count, 517), dtype=np.float32)
+    if count <= 0:
+        return data
+    for row in range(count):
+        data[row, 4] = 100 + strip_offset + row
+        samples = np.zeros(512, dtype=np.float32)
+        peak_index = int(np.clip(center, 0, 511))
+        samples[peak_index] = 400.0 + row * 25.0
+        data[row, 5:] = samples
+    return data
+
+
+def write_si_peak_hdf5_input(path: Path) -> None:
+    with h5py.File(path, "w") as handle:
+        events = handle.create_group("events")
+        events.attrs["version"] = "libattpc_merger:2.0"
+        events.attrs["min_event"] = 1
+        events.attrs["max_event"] = 2
+        events.attrs["bad_events"] = np.array([], dtype=np.int64)
+
+        event_1 = events.create_group("event_1")
+        get_1 = event_1.create_group("get")
+        get_1.create_dataset("si_upstream_front", data=_si_peak_matrix(2, center=80.0))
+        get_1.create_dataset("si_upstream_back", data=_si_peak_matrix(1, center=120.0, strip_offset=10))
+        get_1.create_dataset("si_downstream_front", data=_si_peak_matrix(1, center=200.0, strip_offset=20))
+        get_1.create_dataset("si_downstream_back", data=_si_peak_matrix(0, center=260.0, strip_offset=30))
+
+        event_2 = events.create_group("event_2")
+        get_2 = event_2.create_group("get")
+        get_2.create_dataset("si_upstream_front", data=_si_peak_matrix(1, center=300.0, strip_offset=40))
+        get_2.create_dataset("si_upstream_back", data=_si_peak_matrix(0, center=340.0, strip_offset=50))
+        get_2.create_dataset("si_downstream_front", data=_si_peak_matrix(0, center=380.0, strip_offset=60))
+        get_2.create_dataset("si_downstream_back", data=_si_peak_matrix(1, center=420.0, strip_offset=70))
+
+
 def seed_workspace(workspace: Path) -> None:
     repository = LabelRepository(workspace / "labels.db")
     repository.initialize()
@@ -614,6 +650,12 @@ def test_estimator_service_selects_filter_and_navigates(tmp_path) -> None:
             "run_0017_detector_si_metric_baseline_variant_none.npz",
         ),
         (
+            "SI",
+            "time",
+            write_si_peak_hdf5_input,
+            "run_0017_detector_si_metric_time_variant_none.npz",
+        ),
+        (
             "GAGG",
             "baseline",
             write_gagg_sparse_hdf5_input,
@@ -698,7 +740,19 @@ def test_ic_time_histogram_returns_peak_bucket_counts(tmp_path) -> None:
     workspace.mkdir()
     write_ic_peak_hdf5_input(trace_path)
 
-    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    service = EstimatorService(
+        trace_path=trace_path,
+        workspace=workspace,
+        detector_peak_configs={
+            "SI": {
+                "peak_separation": 10.0,
+                "peak_prominence": 5.0,
+                "peak_width": 20.0,
+                "peak_threshold": 1.0,
+                "peak_rel_height": 0.95,
+            }
+        },
+    )
     try:
         payload = service.get_histogram(metric="time", mode="all", run=16, detector="IC")
         assert payload["metric"] == "time"
@@ -709,5 +763,44 @@ def test_ic_time_histogram_returns_peak_bucket_counts(tmp_path) -> None:
         assert len(payload["series"]) == 1
         assert payload["series"][0]["traceCount"] == 2
         assert sum(payload["series"][0]["histogram"]) >= 2
+    finally:
+        service.close()
+
+
+def test_si_time_histogram_returns_side_grouped_peak_bucket_counts(tmp_path) -> None:
+    trace_path = tmp_path / "run_0017.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_si_peak_hdf5_input(trace_path)
+
+    service = EstimatorService(
+        trace_path=trace_path,
+        workspace=workspace,
+        detector_peak_configs={
+            "SI": {
+                "peak_separation": 10.0,
+                "peak_prominence": 5.0,
+                "peak_width": 20.0,
+                "peak_threshold": 1.0,
+                "peak_rel_height": 0.95,
+            }
+        },
+    )
+    try:
+        payload = service.get_histogram(metric="time", mode="all", run=17, detector="SI")
+        assert payload["metric"] == "time"
+        assert payload["detector"] == "SI"
+        assert payload["binCount"] == 512
+        assert payload["binLabel"] == "Time bucket"
+        assert payload["countLabel"] == "Peak count"
+        assert len(payload["series"]) == 4
+        assert [series["labelKey"] for series in payload["series"]] == [
+            "upstream_front",
+            "upstream_back",
+            "downstream_front",
+            "downstream_back",
+        ]
+        assert [series["traceCount"] for series in payload["series"]] == [3, 1, 1, 1]
+        assert max(sum(series["histogram"]) for series in payload["series"]) >= 1
     finally:
         service.close()

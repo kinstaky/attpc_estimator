@@ -53,6 +53,17 @@ class HistogramJobRequest(BaseModel):
     veto: bool = False
 
 
+class PointcloudTraceRequest(BaseModel):
+    run: int
+    eventId: int
+    traceIds: list[int]
+
+
+class PointcloudLabelAssignRequest(BaseModel):
+    eventId: int
+    label: str
+
+
 class UiStateRequest(BaseModel):
     route: str | None = None
     shell: dict | None = None
@@ -258,6 +269,80 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
     @router.post("/ui-state")
     def update_ui_state(request: UiStateRequest) -> dict:
         return {"uiState": service.update_ui_state(request.model_dump())}
+
+    @router.get("/pointcloud/event")
+    def pointcloud_event(run: int, eventId: int) -> dict:
+        try:
+            return service.get_pointcloud_event(run=run, event_id=eventId)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/pointcloud/current")
+    def current_pointcloud_event() -> dict:
+        try:
+            return service.current_pointcloud_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud/next")
+    def next_pointcloud_event() -> dict:
+        try:
+            return service.next_pointcloud_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud/previous")
+    def previous_pointcloud_event() -> dict:
+        try:
+            return service.previous_pointcloud_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud/traces")
+    def pointcloud_traces(request: PointcloudTraceRequest) -> dict:
+        try:
+            return service.get_pointcloud_traces(
+                run=request.run,
+                event_id=request.eventId,
+                trace_ids=request.traceIds,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/pointcloud-label/current")
+    def current_pointcloud_label_event() -> dict:
+        try:
+            return service.current_pointcloud_label_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud-label/next")
+    def next_pointcloud_label_event() -> dict:
+        try:
+            return service.next_pointcloud_label_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud-label/previous")
+    def previous_pointcloud_label_event() -> dict:
+        try:
+            return service.previous_pointcloud_label_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/pointcloud-label/assign")
+    def assign_pointcloud_label(request: PointcloudLabelAssignRequest) -> dict:
+        try:
+            return service.assign_pointcloud_label(
+                event_id=request.eventId,
+                label=request.label,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return router
 

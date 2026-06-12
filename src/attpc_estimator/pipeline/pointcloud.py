@@ -8,7 +8,6 @@ import sys
 import numpy as np
 from tqdm import tqdm
 
-from attpc_storage.hdf5 import PointcloudWriter, RawTraceReader
 from pointcloud import (
     PadMapEntry,
     adapt_attpc,
@@ -21,6 +20,7 @@ from pointcloud import (
 from ..cli.config import parse_run, parse_toml_config, root_config_values, table_config_values
 from ..detector.pads import PadInfo, PadLookup, load_pad_lookup
 from ..process.bitflip import BITFLIP_BASELINE_DEFAULT, count_qualified_bitflip_segments_batch
+from ..storage.pointcloud_compat import CompatPointcloudWriter, CompatRawTraceReader
 from ..storage.run_paths import pointcloud_run_path, resolve_run_file
 
 
@@ -265,12 +265,12 @@ def process_run(
         window_time_bucket=drift_config.window_time_bucket,
         detector_length=drift_config.detector_length,
     )
-    writer = PointcloudWriter(
+    writer = CompatPointcloudWriter(
         workspace=str(workspace),
         run=run,
         path=str(output_path),
     )
-    reader = RawTraceReader(
+    reader = CompatRawTraceReader(
         workspace=str(workspace),
         run=run,
         path=str(run_file),
