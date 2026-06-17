@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import polars as pl
 
-from attpc_estimator.pipeline.ion_chamber import (
+from attpc_estimator.pipeline.ic import (
     IcAmplitudeConfig,
     IcBaselineConfig,
     ProgressReporter,

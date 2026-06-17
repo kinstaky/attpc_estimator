@@ -30,7 +30,7 @@ histogram = "attpc_estimator.cli.histogram:main"
 relabel = "attpc_estimator.cli.relabel:main"
 webui = "attpc_estimator.cli.webui:main"
 pointcloud = "attpc_estimator.pipeline.pointcloud:main"
-ion_chamber = "attpc_estimator.pipeline.ion_chamber:main"
+ic = "attpc_estimator.cli.ic:main"
 silicon = "attpc_estimator.cli.silicon:main"
 
 

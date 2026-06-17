@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import parse_run, parse_toml_config, root_config_values, table_config_values
+from .config import parse_toml_config, root_config_values, table_config_values
 from ..pipeline.silicon import process_run
 from ..pipeline.progress_reporter import TqdmProgressReporter
 
@@ -23,6 +23,14 @@ def _parse_args() -> argparse.Namespace:
 			"peak_width",
 			"peak_threshold",
 			"rel_height",
+		},
+	)
+	time_config = table_config_values(
+		payload,
+		table="si.time",
+		allowed_keys={
+			"min",
+			"max",
 		},
 	)
 
@@ -79,6 +87,16 @@ def _parse_args() -> argparse.Namespace:
 		type=float,
 		default=amplitude_config.get("rel_height", 0.85)
 	)
+	parser.add_argument(
+		"--min-time",
+		type=int,
+		default=time_config.get("min", 89),
+	)
+	parser.add_argument(
+		"--max-time",
+		type=int,
+		default=time_config.get("max", 99),
+	)
 	return parser.parse_args()
 
 
@@ -88,29 +106,29 @@ def main() -> None:
 		raise SystemExit("no runs provided; pass --run for each run to process")
 
 	workspace = Path(args.workspace).expanduser().resolve()
-	run = int(args.run)
 
-	output_paths = [
-		str(workspace / "ingot" / f"t0d1_{run:04d}.root"),
-		str(workspace / "ingot" / f"t0d2_{run:04d}.root"),
-	]
 	result = process_run(
 		workspace=str(workspace),
 		run=int(args.run),
-		path="hdf5/run_<run>.h5",
-		output_path=output_paths,
+		input_path="hdf5/run_<run>.h5",
+		output_path=[
+			"ingot/t0d1_<run>.root",
+			"ingot/t0d2_<run>.root",
+		],
 		fft_window_scale=args.baseline_window_scale,
 		peak_separation=args.peak_separation,
 		peak_prominence=args.peak_prominence,
 		peak_max_width=args.peak_width,
 		peak_threshold=args.peak_threshold,
 		rel_height=args.peak_rel_height,
+		min_time=args.min_time,
+		max_time=args.max_time,
 		reporter=TqdmProgressReporter(description="Processing T0 silicon"),
 	)
 	if result == 0:
-		print(f"Successfully built T0 root files")
+		print(f"Successfully built run {args.run} T0 root files.")
 	else:
-		print(f"Failed to build T0 root files")
+		print(f"Failed to build run {args.run} T0 root files.")
 
 if __name__ == "__main__":
 	main()
