@@ -6,6 +6,7 @@ import type {
   HistogramVariant,
   LabelAssignResponse,
   MappingPad,
+  MappingStrip,
   PointcloudEventPayload,
   PointcloudLabelEventPayload,
   PointcloudTracePayload,
@@ -81,6 +82,10 @@ export function getBootstrap(): Promise<BootstrapPayload> {
 
 export function getMappingPads(): Promise<MappingPad[]> {
   return request<MappingPad[]>("/api/mapping/pads");
+}
+
+export function getMappingSilicon(detector: "T0D1" | "T0D2"): Promise<MappingStrip[]> {
+  return request<MappingStrip[]>(`/api/mapping/silicon/${detector}`);
 }
 
 export function setSession(payload: SessionPayload): Promise<SessionResponse> {

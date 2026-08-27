@@ -108,6 +108,20 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=500, detail=f"invalid mapping pads file: {pads_path}") from exc
 
+    @router.get("/mapping/silicon/{detector}")
+    def mapping_silicon(detector: str) -> list[dict]:
+        normalized_detector = detector.upper()
+        if normalized_detector not in {"T0D1", "T0D2"}:
+            raise HTTPException(status_code=404, detail=f"unknown silicon detector: {detector}")
+        mapping_path = detector_dir / "silicon.json"
+        if not mapping_path.exists():
+            raise HTTPException(status_code=404, detail=f"silicon mapping file not found: {mapping_path}")
+        try:
+            mappings = json.loads(mapping_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail=f"invalid silicon mapping file: {mapping_path}") from exc
+        return [mapping for mapping in mappings if mapping.get("detector") == normalized_detector]
+
     @router.post("/session")
     def set_session(request: SessionRequest) -> dict:
         try:

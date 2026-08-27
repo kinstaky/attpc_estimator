@@ -1,13 +1,14 @@
 import { computed, reactive } from "vue";
 
-import { getMappingPads } from "../api";
-import type { MappingPad, MappingRenderRule, MappingUiState } from "../types";
+import { getMappingPads, getMappingSilicon } from "../api";
+import type { MappingLayer, MappingPad, MappingRenderRule, MappingStrip, MappingUiState } from "../types";
 
 interface MappingState {
   loading: boolean;
   error: string;
   pads: MappingPad[];
-  selectedLayer: "Pads" | "Si-0" | "Si-1";
+  silicon: Record<"T0D1" | "T0D2", MappingStrip[]>;
+  selectedLayer: MappingLayer;
   selectedView: "Upstream" | "Downstream";
   rules: MappingRenderRule[];
   dialogOpen: boolean;
@@ -18,6 +19,7 @@ const state = reactive<MappingState>({
   loading: true,
   error: "",
   pads: [],
+  silicon: { T0D1: [], T0D2: [] },
   selectedLayer: "Pads",
   selectedView: "Upstream",
   rules: [],
@@ -36,7 +38,13 @@ async function loadPads(): Promise<void> {
   state.loading = true;
   state.error = "";
   try {
-    state.pads = await getMappingPads();
+    const [pads, t0d1, t0d2] = await Promise.all([
+      getMappingPads(),
+      getMappingSilicon("T0D1"),
+      getMappingSilicon("T0D2"),
+    ]);
+    state.pads = pads;
+    state.silicon = { T0D1: t0d1, T0D2: t0d2 };
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
   } finally {
@@ -44,7 +52,7 @@ async function loadPads(): Promise<void> {
   }
 }
 
-function setSelectedLayer(value: "Pads" | "Si-0" | "Si-1"): void {
+function setSelectedLayer(value: MappingLayer): void {
   state.selectedLayer = value;
 }
 
@@ -84,7 +92,8 @@ function applyUiState(payload: MappingUiState | null | undefined): void {
   if (!payload) {
     return;
   }
-  state.selectedLayer = payload.selectedLayer;
+  const persistedLayer = payload.selectedLayer as MappingLayer | "Si-0" | "Si-1";
+  state.selectedLayer = persistedLayer === "Si-0" ? "T0D1" : persistedLayer === "Si-1" ? "T0D2" : persistedLayer;
   state.selectedView = payload.selectedView;
   state.rules = payload.rules.map((rule) => ({ ...rule }));
 }

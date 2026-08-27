@@ -1473,8 +1473,11 @@ class EstimatorService:
 
         mapping_payload = payload.get("mapping")
         if isinstance(mapping_payload, dict):
-            if mapping_payload.get("selectedLayer") in {"Pads", "Si-0", "Si-1"}:
-                state["mapping"]["selectedLayer"] = mapping_payload["selectedLayer"]
+            selected_layer = mapping_payload.get("selectedLayer")
+            legacy_layers = {"Si-0": "T0D1", "Si-1": "T0D2"}
+            selected_layer = legacy_layers.get(selected_layer, selected_layer)
+            if selected_layer in {"Pads", "T0D1", "T0D2"}:
+                state["mapping"]["selectedLayer"] = selected_layer
             if mapping_payload.get("selectedView") in {"Upstream", "Downstream"}:
                 state["mapping"]["selectedView"] = mapping_payload["selectedView"]
             rules = mapping_payload.get("rules")

@@ -67,7 +67,7 @@ export interface HistogramsUiState {
 }
 
 export interface MappingUiState {
-  selectedLayer: "Pads" | "Si-0" | "Si-1";
+  selectedLayer: MappingLayer;
   selectedView: "Upstream" | "Downstream";
   rules: MappingRenderRule[];
 }
@@ -394,7 +394,7 @@ export type HistogramJobMessage =
   | HistogramJobCompleteMessage
   | HistogramJobErrorMessage;
 
-export type MappingLayer = "Pads" | "Si-0" | "Si-1";
+export type MappingLayer = "Pads" | "T0D1" | "T0D2";
 export type MappingViewMode = "Upstream" | "Downstream";
 
 export interface MappingPad {
@@ -408,6 +408,18 @@ export interface MappingPad {
   cx: number;
   cy: number;
 }
+
+export interface MappingStrip {
+  detector: Exclude<MappingLayer, "Pads">;
+  side: "front" | "back";
+  strip: number;
+  cobo: number;
+  asad: number;
+  aget: number;
+  channel: number;
+}
+
+export type MappingChannel = MappingPad | MappingStrip;
 
 export interface MappingRenderRule {
   cobo: string;

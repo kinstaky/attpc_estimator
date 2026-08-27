@@ -202,6 +202,10 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
     detector_dir = tmp_path / "detector"
     detector_dir.mkdir()
     (detector_dir / "pads.json").write_text('[{"pad": 1, "cx": 1.0, "cy": 2.0}]', encoding="utf-8")
+    (detector_dir / "silicon.json").write_text(
+        '[{"detector": "T0D1", "side": "front", "strip": 0, "cobo": 10, "asad": 0, "aget": 0, "channel": 1}]',
+        encoding="utf-8",
+    )
     app = create_app(DummyMergedService(), tmp_path / "missing-dist", detector_dir)
 
     with TestClient(app) as client:
@@ -212,6 +216,11 @@ def test_create_app_routes_and_fallback(tmp_path: Path) -> None:
             "uiState": {"route": "/label"},
         }
         assert client.get("/api/mapping/pads").json() == [{"pad": 1, "cx": 1.0, "cy": 2.0}]
+        assert client.get("/api/mapping/silicon/t0d1").json() == [{
+            "detector": "T0D1", "side": "front", "strip": 0,
+            "cobo": 10, "asad": 0, "aget": 0, "channel": 1,
+        }]
+        assert client.get("/api/mapping/silicon/t0d2").json() == []
 
         session = client.post(
             "/api/session",

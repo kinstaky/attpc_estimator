@@ -6,7 +6,7 @@
       </v-card-title>
       <v-card-text>
         <p class="dialog-copy">
-          Match pads by hardware identifiers. Use digits for an exact match or <code>*</code> as a wildcard.
+          Match detector channels by hardware identifiers. Use digits for an exact match or <code>*</code> as a wildcard.
         </p>
 
         <v-row dense>

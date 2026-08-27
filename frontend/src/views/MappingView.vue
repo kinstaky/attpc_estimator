@@ -3,9 +3,9 @@
     <div class="page-header">
       <div>
         <p class="page-kicker">Mapping</p>
-        <h1>Detector pad mapping</h1>
+        <h1>Detector mapping</h1>
         <p class="page-copy">
-          Inspect the packaged detector geometry, recolor pads by hardware rules, and flip between upstream and downstream views.
+          Inspect packaged detector geometry, recolor hardware channels, and flip between upstream and downstream views.
         </p>
       </div>
     </div>
@@ -24,7 +24,7 @@
           </v-card-title>
           <v-card-text>
             <p class="page-copy mapping-rule-copy">
-              Rules are checked from top to bottom. The first matching rule decides the pad color.
+              Rules are checked from top to bottom. The first matching rule decides the channel color.
             </p>
 
             <div v-if="store.state.rules.length" class="mapping-rule-list">
@@ -69,10 +69,10 @@
         <v-card class="trace-stage-card mapping-stage-card" rounded="xl">
           <v-card-title class="result-card-title">
             <div>
-              <p class="page-kicker">Pads</p>
-              <h2>{{ store.state.selectedLayer === "Pads" ? "Detector footprint" : `${store.state.selectedLayer} unavailable` }}</h2>
+              <p class="page-kicker">{{ store.state.selectedLayer }}</p>
+              <h2>{{ store.state.selectedLayer === "Pads" ? "ATTPC" : "DSSD" }}</h2>
             </div>
-            <v-chip variant="tonal">{{ store.state.pads.length }} pads</v-chip>
+            <v-chip variant="tonal">{{ selectedChannels.length }} channels</v-chip>
           </v-card-title>
           <v-card-text>
             <div class="mapping-stage-toolbar">
@@ -134,20 +134,10 @@
               <v-progress-circular color="primary" indeterminate />
             </div>
 
-            <v-alert
-              v-else-if="store.state.selectedLayer !== 'Pads'"
-              class="mt-4"
-              color="warning"
-              icon="mdi-layers-outline"
-              rounded="xl"
-              variant="tonal"
-            >
-              {{ store.state.selectedLayer }} is not wired to packaged geometry yet. Switch back to Pads to inspect the detector mapping.
-            </v-alert>
-
             <MappingCanvas
               v-else
-              :pads="store.state.pads"
+              :channels="selectedChannels"
+              :layer="store.state.selectedLayer"
               :rules="store.state.rules"
               :view="store.state.selectedView"
             />
@@ -167,14 +157,21 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
+import type { MappingChannel } from "../types";
 import MappingCanvas from "../components/MappingCanvas.vue";
 import MappingRuleDialog from "../components/MappingRuleDialog.vue";
 import { useMappingStore } from "../stores/mapping";
 
 const store = useMappingStore();
-const layers = ["Pads", "Si-0", "Si-1"];
+const layers = ["Pads", "T0D1", "T0D2"] as const;
 const views = ["Upstream", "Downstream"];
+
+const selectedChannels = computed<MappingChannel[]>(() => (
+  store.state.selectedLayer === "Pads"
+    ? store.state.pads
+    : store.state.silicon[store.state.selectedLayer]
+));
 
 onMounted(() => {
   void store.loadPads();
