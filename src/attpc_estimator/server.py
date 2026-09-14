@@ -154,6 +154,15 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @router.get("/traces/current/gagg-fit")
+    def current_gagg_fit() -> dict:
+        try:
+            return service.current_gagg_fit()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @router.post("/traces/next")
     def next_trace() -> dict:
         try:
@@ -236,6 +245,41 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/histograms/cache")
+    def cached_histogram(
+        metric: str,
+        mode: str,
+        run: int,
+        variant: str | None = None,
+        filterFile: str | None = None,
+        veto: bool = False,
+        detector: str | None = None,
+    ) -> dict:
+        try:
+            return service.get_cached_histogram(
+                metric=metric,
+                mode=mode,
+                run=run,
+                detector=detector,
+                variant=variant,
+                filter_file=filterFile,
+                veto=veto,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/gagg-fit-results")
+    def gagg_fit_results(
+        startRun: int | None = None,
+        endRun: int | None = None,
+        gaggIndex: int | None = None,
+    ) -> dict:
+        return service.gagg_fit_results(
+            start_run=startRun, end_run=endRun, gagg_index=gaggIndex,
+        )
 
     @router.post("/histograms/jobs")
     def create_histogram_job(request: HistogramJobRequest) -> dict[str, str]:

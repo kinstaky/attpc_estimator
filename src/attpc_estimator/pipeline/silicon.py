@@ -2,9 +2,11 @@ import numpy as np
 import uproot
 import awkward as ak
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .progress_reporter import ProgressReporter
 from attpc_storage import open_trace_reader, resolve_path
+from attpc_runs import RunDatabase, RunDatabaseError
 from pointcloud import TraceLength, fft_filter_traces, find_trace_peaks
 
 @dataclass
@@ -70,7 +72,26 @@ def process_run(
 	min_time: float,
 	max_time: float,
 	reporter: ProgressReporter,
+	run_tags_path: str | Path | None = None,
 ) -> int:
+	run_database = RunDatabase(
+		workbook_path=Path(run_tags_path) if run_tags_path is not None else Path(workspace) / "runs.xlsx",
+		database_path=Path(workspace) / "runs.sqlite",
+	)
+	try:
+		eligibility = run_database.check(run=run, detector="silicon")
+	except RunDatabaseError as exc:
+		print(f"Skipping silicon run {run}: {exc}")
+		return 1
+	if not eligibility.valid:
+		print(f"Skipping silicon run {run}: {eligibility.reason}")
+		return 1
+	try:
+		execution_id = run_database.start_pipeline(pipeline="silicon", run=run)
+	except RunDatabaseError as exc:
+		print(f"Skipping silicon run {run}: {exc}")
+		return 1
+
 	trace_reader = open_trace_reader(
 		workspace=workspace,
 		run=run,
@@ -260,5 +281,8 @@ def process_run(
 			runs = []
 			event_ids = []
 
+	output_file0.close()
+	output_file1.close()
+	run_database.finish_pipeline(pipeline="silicon", run=run, execution_id=execution_id)
 	reporter.report_finish()
 	return 0

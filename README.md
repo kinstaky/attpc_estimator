@@ -38,32 +38,6 @@ Start the app from the repository root:
 uv run label -w <workspace> -r <run> -d <sqlite-dir>
 ```
 
-Generate a 2D histogram of FFT CDF values with:
-
-```bash
-uv run histogram cdf -t <trace-path> -w <workspace> -r <run>
-uv run histogram cdf -t <trace-path> -w <workspace> -r <run> --labeled
-```
-
-CDF arguments:
-
-- `-t`, `--trace-path`: trace file or directory containing `run_<run>.h5` files
-- `-w`, `--workspace`: workspace directory containing outputs and `trace_label.sqlite3`
-- `-r`, `--run`: required run identifier
-- `--baseline-window-scale`: optional FFT baseline-removal scale, default `20.0`
-
-The `histogram cdf` command writes:
-
-- full traces: `workspace/run_<run>_cdf.npy`
-- labeled traces: `workspace/run_<run>_labeled_cdf.npz`
-
-Generate peak-amplitude histograms with:
-
-```bash
-uv run histogram amplitude -t <trace-path> -w <workspace> -r <run>
-uv run histogram amplitude -t <trace-path> -w <workspace> -r <run> --labeled
-```
-
 Generate a simple filter file for the viewer with:
 
 ```bash
@@ -116,7 +90,8 @@ The app prints the selected port when it starts. If needed, open `http://127.0.0
 - `Right Arrow` or `l`: enter strange-label mode
 - `Up Arrow` or `k`: previous trace
 - `Down Arrow` or `j`: next trace
-- `f`: toggle browse visual mode between raw-only and analysis
+- `f`: cycle trace plot modes forward (`Raw` → `CDF` → `Curvature` → `Peak`)
+- `Shift+f`: cycle trace plot modes backward
 - `q` or `Escape`: leave the current mode, or return to the welcome screen from browse mode
 
 ### Normal labels

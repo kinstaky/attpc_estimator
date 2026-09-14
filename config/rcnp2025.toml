@@ -1,0 +1,134 @@
+trace_path = "/data/rcnp2025/hdf5"
+port = 8766
+run = 1056
+workspace = "/data/rcnp2025/attpc_estimator"
+
+[run_tags]
+path = "runs.xlsx"
+
+[gagg]
+fit_parameters_path = "gagg_fit_parameters.toml"
+
+[attpc.baseline]
+fft_window_scale = 10.0
+
+[attpc.amplitude]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 100.0
+peak_threshold = 100.0
+rel_height = 0.95
+
+[attpc.bitflip]
+baseline = 15.0
+min_count = 1
+
+[attpc.saturation]
+drop_threshold = 15.0
+min_plateau_length = 3
+threshold = 2000.0
+window_radius = 16
+
+[ic.baseline]
+fft_window_scale = 100.0
+
+[ic.amplitude]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 500.0
+peak_threshold = 100.0
+rel_height = 0.85
+
+[ic.time]
+min = 62
+max = 68
+
+[si.baseline]
+fft_window_scale = 10.0
+
+[si.amplitude]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 100.0
+peak_threshold = 20.0
+rel_height = 0.9
+
+[si.time]
+min = 89
+max = 99
+
+[gagg.indexes]
+min = 0
+max = 40
+invalid = [24, 32, 39, 40]
+
+[[gagg.baseline]]
+index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 25]
+fft_window_scale = 5.0
+
+[[gagg.baseline]]
+index = [16, 17, 19, 20, 21, 22, 23]
+fft_window_scale = 16.0
+
+[[gagg.baseline]]
+index = [26, 27, 28, 29, 30, 31]
+fft_window_scale = 50.0
+
+[[gagg.baseline]]
+index = [33, 34, 35, 36, 37, 38]
+fft_window_scale = 32.0
+
+[[gagg.amplitude]]
+index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 33, 34, 35, 36, 37, 38]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 50.0
+peak_threshold = 50.0
+rel_height = 0.95
+
+[[gagg.amplitude]]
+index = [26, 27, 28, 29, 30, 31]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 50.0
+peak_threshold = 100.0
+rel_height = 0.95
+
+[[gagg.time]]
+index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+min = 57
+max = 66
+
+[[gagg.time]]
+index = [16, 17, 18, 19, 20, 21, 22, 23]
+min = 40
+max = 57
+
+[[gagg.time]]
+index = [25, 26, 27, 28, 29, 30, 31]
+min = 49
+max = 53
+
+[[gagg.time]]
+index = [33, 34, 35, 36, 37, 38]
+min = 56
+max = 61
+
+[filter]
+limit = 1000
+
+[pointcloud]
+micromegas_time_bucket = 86.0
+window_time_bucket = 420.0
+
+[findline.ransac]
+residual_threshold = 20.0
+max_trials = 50
+max_iterations = 10
+target_labeled_ratio = 0.8
+min_inliers = 20
+max_start_radius = 40.0
+
+[findline.mergeline]
+distance_threshold = 15
+angle_threshold = 3

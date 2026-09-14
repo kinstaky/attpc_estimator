@@ -10,12 +10,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "attpc-pointcloud",
+  "attpc-runs",
   "attpc-storage",
   "awkward>=2.9.0",
   "fastapi>=0.115,<1.0",
   "h5py>=3.16.0",
   "numba>=0.62,<1.0",
   "numpy>=2.4.3",
+  "openpyxl>=3.1,<4.0",
   "polars>=1.39.3",
   "scikit-learn>=1.8.0",
   "scipy>=1.17.1",
@@ -26,12 +28,13 @@ dependencies = [
 
 [project.scripts]
 filter = "attpc_estimator.cli.filter:main"
-histogram = "attpc_estimator.cli.histogram:main"
 relabel = "attpc_estimator.cli.relabel:main"
 webui = "attpc_estimator.cli.webui:main"
 pointcloud = "attpc_estimator.pipeline.pointcloud:main"
 ic = "attpc_estimator.cli.ic:main"
 silicon = "attpc_estimator.cli.silicon:main"
+gagg = "attpc_estimator.cli.gagg:main"
+gagg-fit = "attpc_estimator.cli.gagg_fit:main"
 
 
 [project.optional-dependencies]
@@ -45,6 +48,7 @@ pythonpath = ["src"]
 [tool.uv.sources]
 attpc-storage = { path = "../attpc_storage", editable = true }
 attpc-pointcloud = { path = "../attpc_pointcloud", editable = true }
+attpc-runs = { path = "../attpc_runs", editable = true }
 
 [dependency-groups]
 dev = [

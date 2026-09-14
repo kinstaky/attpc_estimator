@@ -71,7 +71,7 @@
             </div>
             <div class="trace-stage-hints">
               <span>H / ← then 0-6 to label.</span>
-              <span>Space uses merged RANSAC count. F switches layout.</span>
+              <span>Space uses merged RANSAC count. F / Shift+F switches layout.</span>
             </div>
           </v-card-title>
 
@@ -362,7 +362,11 @@ async function onKeydown(event) {
 
   if (key === "f") {
     event.preventDefault();
-    store.toggleVisualMode();
+    if (event.shiftKey) {
+      store.reverseVisualMode();
+    } else {
+      store.toggleVisualMode();
+    }
     return;
   }
   if (key === "arrowleft" || key === "h") {

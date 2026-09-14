@@ -69,6 +69,10 @@ function toggleVisualMode(): void {
       : "basic";
 }
 
+function reverseVisualMode(): void {
+  toggleVisualMode();
+}
+
 function syncSession(payload: SessionResponse): void {
   useShellStore().updateSession(payload.session);
 }
@@ -237,6 +241,7 @@ export function usePointcloudLabelStore() {
     cancelSelectionMode,
     setVisualMode,
     toggleVisualMode,
+    reverseVisualMode,
     enterLabelMode,
     enterReviewMode,
     exitReviewMode,

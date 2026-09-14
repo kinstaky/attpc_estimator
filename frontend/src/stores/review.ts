@@ -2,6 +2,7 @@ import { reactive } from "vue";
 
 import {
   getCurrentTrace,
+  getCurrentGaggFit,
   nextEvent,
   nextTrace,
   previousEvent,
@@ -11,16 +12,19 @@ import {
   setLabelReviewSession,
 } from "../api";
 import { useShellStore } from "./shell";
+import {
+  REVIEW_PLOT_MODES_BY_DETECTOR,
+} from "../types";
 import type {
   DetectorName,
   ReviewUiState,
+  ReviewVisualMode,
   SessionResponse,
   TracePayload,
 } from "../types";
 
 type ReviewSource = "label_set" | "filter_file" | "event_trace";
 type ReviewFamily = "normal" | "strange";
-type VisualMode = "raw" | "cdf" | "curvature" | "peak";
 type DirectFilterItem = "none" | "max";
 
 interface ReviewState {
@@ -35,7 +39,7 @@ interface ReviewState {
   filterItem: DirectFilterItem;
   filterValue: number | null;
   currentTrace: TracePayload | null;
-  visualMode: VisualMode;
+  visualMode: ReviewVisualMode;
   loading: boolean;
   error: string;
   statusMessage: string;
@@ -78,6 +82,16 @@ function normalizeDirectDetector(detector: unknown): DetectorName {
   return "ATTPC";
 }
 
+function supportedVisualModes(): ReviewVisualMode[] {
+  return REVIEW_PLOT_MODES_BY_DETECTOR[state.detector].map((option) => option.value);
+}
+
+function ensureSupportedVisualMode(): void {
+  if (!supportedVisualModes().includes(state.visualMode)) {
+    state.visualMode = "raw";
+  }
+}
+
 function ensureDefaults(): void {
   const shell = useShellStore();
   if (state.run === null) {
@@ -118,6 +132,7 @@ function setSource(source: ReviewSource): void {
   state.currentTrace = null;
   clearTransientUi();
   ensureDefaults();
+  ensureSupportedVisualMode();
 }
 
 function setDetector(detector: DetectorName): void {
@@ -128,6 +143,7 @@ function setDetector(detector: DetectorName): void {
   state.currentTrace = null;
   clearTransientUi();
   ensureDefaults();
+  ensureSupportedVisualMode();
 }
 
 function setRun(run: number | string | null): void {
@@ -185,22 +201,21 @@ function setTraceId(traceId: number | string | null): void {
   state.traceId = Number(traceId);
 }
 
-function setVisualMode(mode: VisualMode): void {
-  if (mode !== "raw" && mode !== "cdf" && mode !== "curvature" && mode !== "peak") {
+function setVisualMode(mode: ReviewVisualMode): void {
+  if (!supportedVisualModes().includes(mode)) {
     return;
   }
   state.visualMode = mode;
 }
 
 function toggleVisualMode(): void {
-  state.visualMode =
-    state.visualMode === "raw"
-      ? "cdf"
-      : state.visualMode === "cdf"
-        ? "curvature"
-        : state.visualMode === "curvature"
-          ? "peak"
-          : "raw";
+  const modes = supportedVisualModes();
+  state.visualMode = modes[(modes.indexOf(state.visualMode) + 1) % modes.length];
+}
+
+function reverseVisualMode(): void {
+  const modes = supportedVisualModes();
+  state.visualMode = modes[(modes.indexOf(state.visualMode) - 1 + modes.length) % modes.length];
 }
 
 function applyQuery(query: Record<string, unknown>): void {
@@ -219,6 +234,7 @@ function applyQuery(query: Record<string, unknown>): void {
     }
     state.family = query.family === "strange" ? "strange" : "normal";
     state.label = typeof query.label === "string" ? query.label : "";
+    ensureSupportedVisualMode();
     return;
   }
   if (source === "event_trace") {
@@ -239,11 +255,13 @@ function applyQuery(query: Record<string, unknown>): void {
       setFilterValue(Number(query.filterValue));
     }
     ensureDirectSourceDefaults();
+    ensureSupportedVisualMode();
     return;
   }
   state.detector = "ATTPC";
   state.filterFile =
     typeof query.filterFile === "string" ? query.filterFile : state.filterFile;
+  ensureSupportedVisualMode();
 }
 
 function buildQuery(): Record<string, string | number | undefined> {
@@ -402,6 +420,19 @@ function syncDirectSelectionFromTrace(trace: TracePayload | null): void {
   if (state.detector === "IC") {
     state.traceId = 0;
   }
+  ensureSupportedVisualMode();
+}
+
+async function loadCurrentGaggFit(): Promise<void> {
+  const trace = state.currentTrace;
+  if (state.visualMode !== "fit" || trace?.detector !== "GAGG" || trace.gaggFit) {
+    return;
+  }
+  try {
+    trace.gaggFit = await getCurrentGaggFit();
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  }
 }
 
 function syncSession(payload: SessionResponse): void {
@@ -427,6 +458,7 @@ function applyUiState(payload: ReviewUiState | null | undefined): void {
   state.filterValue = payload.filterValue;
   state.visualMode = payload.visualMode;
   ensureDefaults();
+  ensureSupportedVisualMode();
 }
 
 function serializeUiState(): ReviewUiState {
@@ -461,6 +493,7 @@ export function useReviewStore() {
     setTraceId,
     setVisualMode,
     toggleVisualMode,
+    reverseVisualMode,
     applyUiState,
     serializeUiState,
     applyQuery,
@@ -471,5 +504,6 @@ export function useReviewStore() {
     previousReviewTrace,
     nextReviewEvent,
     previousReviewEvent,
+    loadCurrentGaggFit,
   };
 }

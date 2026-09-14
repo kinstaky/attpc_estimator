@@ -38,7 +38,10 @@ SI_CODE_TO_SIDE = {value: key for key, value in SI_SIDE_TO_CODE.items()}
 GAGG_LAYER_1_COUNT = 25
 GAGG_LAYER_2_COUNT = 16
 GAGG_TRACE_COUNT = GAGG_LAYER_1_COUNT + GAGG_LAYER_2_COUNT
-GAGG_TRACE_LENGTHS = frozenset((128, 256))
+GAGG_TRACE_SAMPLE_LENGTHS = frozenset((128, 256))
+GAGG_TRACE_ROW_LENGTHS = frozenset(
+    (*GAGG_TRACE_SAMPLE_LENGTHS, *(length + 1 for length in GAGG_TRACE_SAMPLE_LENGTHS))
+)
 
 
 def load_trace_record(
@@ -130,7 +133,7 @@ def trace_record_from_ion_chamber_trace(
     raw: np.ndarray,
     baseline_window_scale: float,
 ) -> TraceRecord:
-    raw_array = np.asarray(raw, dtype=np.float32)
+    raw_array = np.asarray(raw, dtype=np.float32).reshape(-1)
     trace = preprocess_traces(
         raw_array[np.newaxis, :],
         baseline_window_scale=baseline_window_scale,
@@ -198,13 +201,18 @@ def trace_record_from_gagg_row(
     baseline_window_scale: float,
 ) -> TraceRecord:
     row_array = np.asarray(row, dtype=np.float32)
-    if row_array.ndim != 1 or int(row_array.shape[0]) not in GAGG_TRACE_LENGTHS:
+    if row_array.ndim != 1 or int(row_array.shape[0]) not in GAGG_TRACE_ROW_LENGTHS:
         raise LookupError(
             f"GAGG trace {run}/{event_id}/{trace_id} has invalid shape {row_array.shape}"
         )
+    raw = (
+        row_array[1:]
+        if int(row_array.shape[0]) - 1 in GAGG_TRACE_SAMPLE_LENGTHS
+        else row_array
+    )
     layer, index = gagg_trace_selector(trace_id)
     trace = preprocess_traces(
-        row_array[np.newaxis, :],
+        raw[np.newaxis, :],
         baseline_window_scale=baseline_window_scale,
     )[0]
     transformed = compute_frequency_distribution(trace[np.newaxis, :])[0]
@@ -214,7 +222,7 @@ def trace_record_from_gagg_row(
         trace_id=trace_id,
         detector=DETECTOR_GAGG,
         hardware_id=np.asarray([layer, index, trace_id, 0, 0], dtype=np.float32),
-        raw=row_array,
+        raw=raw,
         trace=trace,
         transformed=transformed,
         family=None,
@@ -240,7 +248,7 @@ def is_valid_gagg_event_rows(rows: np.ndarray) -> bool:
     return (
         rows_array.ndim == 2
         and int(rows_array.shape[0]) == GAGG_TRACE_COUNT
-        and int(rows_array.shape[1]) in GAGG_TRACE_LENGTHS
+        and int(rows_array.shape[1]) in GAGG_TRACE_ROW_LENGTHS
     )
 
 

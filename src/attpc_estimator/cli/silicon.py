@@ -2,13 +2,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import parse_toml_config, root_config_values, table_config_values
+from .config import config_relative_path, parse_toml_config, root_config_values, table_config_values
 from ..pipeline.silicon import process_run
 from ..pipeline.progress_reporter import TqdmProgressReporter
 
 def _parse_args() -> argparse.Namespace:
 	config_path, payload = parse_toml_config(sys.argv[1:])
 	config = root_config_values(payload, allowed_keys={"trace_path", "workspace", "run"})
+	run_tags_config = table_config_values(payload, table="run_tags", allowed_keys={"path"})
 	baseline_config = table_config_values(
 		payload,
 		table="si.baseline",
@@ -97,7 +98,12 @@ def _parse_args() -> argparse.Namespace:
 		type=int,
 		default=time_config.get("max", 99),
 	)
-	return parser.parse_args()
+	args = parser.parse_args()
+	run_tags_path = run_tags_config.get("path")
+	if not isinstance(run_tags_path, str) or not run_tags_path.strip():
+		raise ValueError("run_tags.path must name the runs workbook")
+	args.run_tags_path = config_relative_path(config_path, run_tags_path)
+	return args
 
 
 def main() -> None:
@@ -124,6 +130,7 @@ def main() -> None:
 		min_time=args.min_time,
 		max_time=args.max_time,
 		reporter=TqdmProgressReporter(description="Processing T0 silicon"),
+		run_tags_path=args.run_tags_path,
 	)
 	if result == 0:
 		print(f"Successfully built run {args.run} T0 root files.")

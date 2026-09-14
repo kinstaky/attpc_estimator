@@ -1,6 +1,6 @@
 import { computed, reactive } from "vue";
 
-import { createHistogramJob, getHistogram, histogramJobSocketUrl } from "../api";
+import { createHistogramJob, getCachedHistogram, histogramJobSocketUrl } from "../api";
 import { useShellStore } from "./shell";
 import type {
   DetectorName,
@@ -28,6 +28,7 @@ interface HistogramState {
   selectedMode: HistogramMode;
   selectedBitflipVariant: Extract<HistogramVariant, "baseline" | "value" | "length" | "count">;
   selectedSaturationVariant: Extract<HistogramVariant, "drop" | "length">;
+  selectedGaggTraceSaturation: Extract<HistogramVariant, "all" | "yes" | "no">;
   selectedHistogramFilter: string;
   selectedHistogramVeto: boolean;
   filteredPlotDirty: boolean;
@@ -49,6 +50,7 @@ const state = reactive<HistogramState>({
   selectedMode: "all",
   selectedBitflipVariant: "baseline",
   selectedSaturationVariant: "drop",
+  selectedGaggTraceSaturation: "all",
   selectedHistogramFilter: "",
   selectedHistogramVeto: false,
   filteredPlotDirty: false,
@@ -74,9 +76,9 @@ const PHASE_METRICS: Record<HistogramPhase, HistogramMetric[]> = {
 
 const IC_PHASE1_METRICS: HistogramMetric[] = ["amplitude", "time", "baseline"];
 const SI_PHASE1_METRICS: HistogramMetric[] = ["time", "baseline"];
-const GAGG_PHASE1_METRICS: HistogramMetric[] = ["baseline"];
+const GAGG_PHASE1_METRICS: HistogramMetric[] = ["time", "baseline", "fit", "trace"];
 
-const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "line_property", "coplanar"]);
+const MODE_LOCKED_METRICS = new Set<HistogramMetric>(["line_distance", "line_property", "coplanar", "trace"]);
 
 function clearTransientUi(): void {
   state.error = "";
@@ -126,6 +128,7 @@ function ensureInitialized(): void {
 }
 
 function currentVariant(): HistogramVariant | "" {
+  if (state.selectedDetector === "GAGG" && state.selectedMetric === "trace") return state.selectedGaggTraceSaturation;
   if (state.selectedDetector !== "ATTPC") {
     return "";
   }
@@ -209,6 +212,12 @@ async function loadHistogram(forceFiltered = false): Promise<void> {
     return;
   }
   clearTransientUi();
+  if (state.selectedDetector === "GAGG" && state.selectedMetric === "fit") {
+    state.histogram = null;
+    state.loading = false;
+    state.progress = null;
+    return;
+  }
   state.selectedPhase = metricPhase(state.selectedMetric);
   ensureModeAvailability();
   if (state.selectedMode === "filtered" && !forceFiltered) {
@@ -220,25 +229,15 @@ async function loadHistogram(forceFiltered = false): Promise<void> {
     }
     return;
   }
+  // Remove the prior result before the new job starts. Progress must never be
+  // shown alongside a plot for a different selection.
+  state.histogram = null;
   state.loading = true;
   state.progress = null;
   try {
-    if (state.selectedMode === "filtered") {
-      state.histogram = await loadFilteredHistogram(loadId);
-      state.filteredPlotDirty = false;
-    } else {
-      state.histogram = await getHistogram(
-        state.selectedMetric,
-        state.selectedMode,
-        state.selectedRun,
-        state.selectedDetector,
-        currentVariant(),
-        "",
-        false,
-      );
-      state.progress = null;
-      state.filteredPlotDirty = false;
-    }
+    state.histogram = await loadHistogramFromCacheOrJob(loadId);
+    state.progress = null;
+    state.filteredPlotDirty = false;
     syncCurrentSeriesOrder();
   } catch (error) {
     if (loadId !== loadSequence) {
@@ -257,20 +256,41 @@ async function loadHistogram(forceFiltered = false): Promise<void> {
   }
 }
 
-async function loadFilteredHistogram(loadId: number): Promise<HistogramPayload> {
+async function loadHistogramFromCacheOrJob(loadId: number): Promise<HistogramPayload> {
   if (state.selectedRun === null) {
     throw new Error("run is required");
   }
-  if (!state.selectedHistogramFilter) {
+  const filterFile = state.selectedMode === "filtered" ? state.selectedHistogramFilter : "";
+  const veto = state.selectedMode === "filtered" ? state.selectedHistogramVeto : false;
+  try {
+    return await getCachedHistogram(
+      state.selectedMetric,
+      state.selectedMode,
+      state.selectedRun,
+      state.selectedDetector,
+      currentVariant(),
+      filterFile,
+      veto,
+    );
+  } catch {
+    return loadHistogramJob(loadId);
+  }
+}
+
+async function loadHistogramJob(loadId: number): Promise<HistogramPayload> {
+  if (state.selectedRun === null) {
+    throw new Error("run is required");
+  }
+  if (state.selectedMode === "filtered" && !state.selectedHistogramFilter) {
     throw new Error("filter file is required");
   }
   const { jobId } = await createHistogramJob(
     state.selectedMetric,
-    "filtered",
+    state.selectedMode,
     state.selectedRun,
     currentVariant(),
-    state.selectedHistogramFilter,
-    state.selectedHistogramVeto,
+    state.selectedMode === "filtered" ? state.selectedHistogramFilter : "",
+    state.selectedMode === "filtered" ? state.selectedHistogramVeto : false,
     state.selectedDetector,
   );
   if (loadId !== loadSequence) {
@@ -402,6 +422,8 @@ async function setSelectedVariant(variant: HistogramVariant): Promise<void> {
     && (variant === "drop" || variant === "length")
   ) {
     state.selectedSaturationVariant = variant;
+  } else if (state.selectedMetric === "trace" && (variant === "all" || variant === "yes" || variant === "no")) {
+    state.selectedGaggTraceSaturation = variant;
   } else {
     return;
   }
@@ -556,6 +578,7 @@ function applyUiState(payload: HistogramsUiState | null | undefined): void {
   state.selectedMode = payload.selectedMode;
   state.selectedBitflipVariant = payload.selectedBitflipVariant;
   state.selectedSaturationVariant = payload.selectedSaturationVariant;
+  state.selectedGaggTraceSaturation = payload.selectedGaggTraceSaturation || "all";
   state.selectedHistogramFilter = payload.selectedHistogramFilter;
   state.selectedHistogramVeto = payload.selectedHistogramVeto;
   state.cdfScaleMode = payload.cdfScaleMode;
@@ -577,6 +600,7 @@ function serializeUiState(): HistogramsUiState {
     selectedMode: state.selectedMode,
     selectedBitflipVariant: state.selectedBitflipVariant,
     selectedSaturationVariant: state.selectedSaturationVariant,
+    selectedGaggTraceSaturation: state.selectedGaggTraceSaturation,
     selectedHistogramFilter: state.selectedHistogramFilter,
     selectedHistogramVeto: state.selectedHistogramVeto,
     cdfScaleMode: state.cdfScaleMode,

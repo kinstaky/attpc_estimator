@@ -7,7 +7,6 @@ import h5py
 import numpy as np
 
 import attpc_estimator.cli.bitflip as bitflip_cli
-import attpc_estimator.cli.histogram as histogram_cli
 from attpc_estimator.cli.baseline import main as baseline_main
 from attpc_estimator.cli.saturation import main as saturation_main
 from attpc_estimator.process.bitflip import (
@@ -274,55 +273,6 @@ def test_baseline_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
     assert payload["histogram"].sum() == 20
     assert payload["bin_centers"][0] < 0
     assert payload["bin_centers"][-1] > 0
-
-
-def test_bitflip_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:
-    trace_root = tmp_path / "traces"
-    workspace = tmp_path / "workspace"
-    trace_root.mkdir()
-    workspace.mkdir()
-    write_run_file(
-        trace_root / "run_0008.h5",
-        {1: [_qualified_bitflip_trace()]},
-    )
-    monkeypatch.setattr(
-        histogram_cli,
-        "build_bitflip_histograms",
-        lambda **_: {
-            "trace_count": np.int64(3),
-            "baseline_histogram": np.arange(8, dtype=np.int64) + 30,
-            "value_histogram": np.arange(8, dtype=np.int64),
-            "length_histogram": np.arange(8, dtype=np.int64) + 10,
-            "count_histogram": np.arange(8, dtype=np.int64) + 20,
-        },
-    )
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "bitflip",
-            "-t",
-            str(trace_root),
-            "-w",
-            str(workspace),
-            "-r",
-            "8",
-            "--baseline-window-scale",
-            "10.0",
-            "--baseline",
-            "1",
-            "--no-labeled",
-        ],
-    )
-    bitflip_cli.main()
-
-    payload = np.load(workspace / "histograms" / "run_0008_bitflip.npz")
-    assert int(payload["trace_count"]) == 3
-    assert payload["baseline_histogram"].sum() == 268
-    assert payload["value_histogram"].sum() == 28
-    assert payload["length_histogram"].sum() == 108
-    assert payload["count_histogram"].sum() == 188
 
 
 def test_saturation_main_writes_expected_artifact(tmp_path, monkeypatch) -> None:

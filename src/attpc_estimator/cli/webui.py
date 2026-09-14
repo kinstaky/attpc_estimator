@@ -11,14 +11,18 @@ import uvicorn
 
 from ..server import create_app
 from ..process.line_pipeline import MergeConfig, RansacConfig
+from ..process.gagg_parameters import load_gagg_fit_parameters
 from ..service.estimator import EstimatorService
 from .config import (
     argument_config_kwargs,
+    config_relative_path,
     parse_toml_config,
     parse_run,
     root_config_values,
+    table_config_entries,
     table_config_values,
 )
+from ..utils.gagg_processing import build_gagg_trace_rules
 
 
 def main() -> None:
@@ -27,6 +31,42 @@ def main() -> None:
     trace_path = Path(args.trace_path).expanduser().resolve()
     workspace = Path(args.workspace).expanduser().resolve()
     default_run = int(args.run) if args.run is not None else None
+    try:
+        gagg_fit_parameters = (
+            load_gagg_fit_parameters(args.gagg_fit_parameters_path)
+            if args.gagg_fit_parameters_path is not None
+            else None
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    gagg_trace_rules = build_gagg_trace_rules(
+        baseline_entries=args.gagg_baseline_entries
+        or [{"fft_window_scale": args.gagg_baseline_window_scale}],
+        amplitude_entries=args.gagg_amplitude_entries
+        or [{
+            "peak_separation": args.gagg_peak_separation,
+            "peak_prominence": args.gagg_peak_prominence,
+            "peak_width": args.gagg_peak_width,
+            "peak_threshold": args.gagg_peak_threshold,
+            "rel_height": args.gagg_peak_rel_height,
+        }],
+        baseline_override=(
+            args.gagg_baseline_window_scale
+            if _option_supplied("--gagg-baseline-window-scale")
+            else None
+        ),
+        peak_overrides={
+            field: float(getattr(args, argument))
+            for field, argument, option in (
+                ("peak_separation", "gagg_peak_separation", "--gagg-peak-separation"),
+                ("peak_prominence", "gagg_peak_prominence", "--gagg-peak-prominence"),
+                ("peak_width", "gagg_peak_width", "--gagg-peak-width"),
+                ("peak_threshold", "gagg_peak_threshold", "--gagg-peak-threshold"),
+                ("rel_height", "gagg_peak_rel_height", "--gagg-peak-rel-height"),
+            )
+            if _option_supplied(option)
+        },
+    )
 
     if not trace_path.exists():
         raise SystemExit(f"trace path not found: {trace_path}")
@@ -71,6 +111,9 @@ def main() -> None:
                 "peak_rel_height": args.gagg_peak_rel_height,
             },
         },
+        "gagg_trace_rules": gagg_trace_rules,
+        "gagg_fit_parameters": gagg_fit_parameters,
+        "gagg_valid_indexes": args.gagg_valid_indexes,
         "bitflip_baseline_threshold": args.bitflip_baseline,
         "saturation_threshold": args.saturation_threshold,
         "saturation_drop_threshold": args.saturation_drop_threshold,
@@ -140,10 +183,23 @@ def _parse_args() -> argparse.Namespace:
         table="si.baseline",
         allowed_keys={"fft_window_scale"},
     )
-    gagg_baseline_config = table_config_values(
+    gagg_baseline_entries = table_config_entries(
         payload,
         table="gagg.baseline",
-        allowed_keys={"fft_window_scale"},
+        allowed_keys={"index", "fft_window_scale"},
+    )
+    gagg_time_entries = table_config_entries(
+        payload,
+        table="gagg.time",
+        allowed_keys={"index", "min", "max"},
+    )
+    gagg_config = table_config_values(
+        payload,
+        table="gagg",
+        allowed_keys={"fit_parameters_path"},
+    )
+    gagg_indexes_config = table_config_values(
+        payload, table="gagg.indexes", allowed_keys={"min", "max", "invalid"},
     )
     amplitude_config = table_config_values(
         payload,
@@ -178,16 +234,20 @@ def _parse_args() -> argparse.Namespace:
             "rel_height",
         },
     )
-    gagg_amplitude_config = table_config_values(
+    gagg_amplitude_entries = table_config_entries(
         payload,
         table="gagg.amplitude",
         allowed_keys={
+            "index",
             "peak_separation",
             "peak_prominence",
             "peak_width",
             "peak_threshold",
             "rel_height",
         },
+    )
+    legacy_gagg_amplitude = (
+        gagg_amplitude_entries[0] if len(gagg_amplitude_entries) == 1 else {}
     )
     bitflip_config = table_config_values(
         payload,
@@ -277,7 +337,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gagg-baseline-window-scale",
         type=float,
-        default=gagg_baseline_config.get("fft_window_scale", baseline_config.get("fft_window_scale")),
+        default=baseline_config.get("fft_window_scale"),
         help="Baseline-removal filter scale used for GAGG trace preprocessing",
     )
     parser.add_argument(
@@ -373,31 +433,31 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gagg-peak-separation",
         type=float,
-        default=gagg_amplitude_config.get("peak_separation", amplitude_config.get("peak_separation", 50.0)),
+        default=legacy_gagg_amplitude.get("peak_separation", amplitude_config.get("peak_separation", 50.0)),
         help="Minimum separation between GAGG peaks for WebUI review",
     )
     parser.add_argument(
         "--gagg-peak-prominence",
         type=float,
-        default=gagg_amplitude_config.get("peak_prominence", amplitude_config.get("peak_prominence", 20.0)),
+        default=legacy_gagg_amplitude.get("peak_prominence", amplitude_config.get("peak_prominence", 20.0)),
         help="Prominence of GAGG peaks for WebUI review",
     )
     parser.add_argument(
         "--gagg-peak-width",
         type=float,
-        default=gagg_amplitude_config.get("peak_width", amplitude_config.get("peak_width", 50.0)),
+        default=legacy_gagg_amplitude.get("peak_width", amplitude_config.get("peak_width", 50.0)),
         help="Maximum GAGG peak width for WebUI review",
     )
     parser.add_argument(
         "--gagg-peak-threshold",
         type=float,
-        default=gagg_amplitude_config.get("peak_threshold", amplitude_config.get("peak_threshold", 0.0)),
+        default=legacy_gagg_amplitude.get("peak_threshold", amplitude_config.get("peak_threshold", 0.0)),
         help="Minimum GAGG peak amplitude for WebUI review",
     )
     parser.add_argument(
         "--gagg-peak-rel-height",
         type=float,
-        default=gagg_amplitude_config.get("rel_height", amplitude_config.get("rel_height", 0.95)),
+        default=legacy_gagg_amplitude.get("rel_height", amplitude_config.get("rel_height", 0.95)),
         help="Relative height used when measuring GAGG peak width",
     )
     parser.add_argument(
@@ -495,7 +555,30 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print backend debug messages to the terminal",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.gagg_baseline_entries = gagg_baseline_entries
+    args.gagg_amplitude_entries = gagg_amplitude_entries
+    args.gagg_time_entries = gagg_time_entries
+    fit_parameters_path = gagg_config.get("fit_parameters_path")
+    if "gagg" in payload and (
+        not isinstance(fit_parameters_path, str) or not fit_parameters_path.strip()
+    ):
+        raise ValueError("gagg.fit_parameters_path must name a GAGG fit-parameters TOML file")
+    args.gagg_fit_parameters_path = (
+        config_relative_path(config_path, fit_parameters_path)
+        if isinstance(fit_parameters_path, str)
+        else None
+    )
+    if gagg_indexes_config:
+        try:
+            lower, upper = int(gagg_indexes_config["min"]), int(gagg_indexes_config["max"])
+            invalid = {int(value) for value in gagg_indexes_config.get("invalid", [])}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("[gagg.indexes] requires min, max, and an optional integer invalid list") from exc
+        args.gagg_valid_indexes = tuple(index for index in range(lower, upper + 1) if index not in invalid)
+    else:
+        args.gagg_valid_indexes = tuple(range(41))
+    return args
 
 
 def _configure_logging(*, verbose: bool) -> None:
@@ -518,6 +601,10 @@ def _pick_port(preferred_port: int) -> int:
         except OSError:
             sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _option_supplied(option: str) -> bool:
+    return any(argument == option or argument.startswith(f"{option}=") for argument in sys.argv[1:])
 
 
 if __name__ == "__main__":

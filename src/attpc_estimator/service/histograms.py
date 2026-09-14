@@ -10,18 +10,31 @@ from typing import Any
 import h5py
 import numpy as np
 from scipy import signal
+from pointcloud import TraceLength, fft_filter_traces, find_trace_peaks
 
-from ..process.amplitude import AMPLITUDE_BIN_COUNT, _accumulate_peak_histogram
+from ..process.amplitude import (
+    AMPLITUDE_BIN_COUNT, _accumulate_peak_histogram, build_amplitude_histogram,
+    build_labeled_amplitude_histograms,
+)
 from ..process.baseline import (
     BASELINE_BIN_CENTERS,
     BASELINE_BIN_COUNT,
     BASELINE_BIN_LABEL,
     BASELINE_COUNT_LABEL,
     accumulate_baseline_histogram,
+    build_baseline_histogram,
+    build_labeled_baseline_histograms,
 )
-from ..process.cdf import _accumulate_cdf_histogram_numba
+from ..process.cdf import (
+    _accumulate_cdf_histogram_numba, build_labeled_cdf_histograms,
+    build_trace_cdf_histogram,
+)
 from ..process.line_distance import serialize_line_distance_payload
 from ..process.line_property import serialize_line_property_payload
+from ..process.coplanar import build_coplanar_histogram, default_pointcloud_file_path as coplanar_path
+from ..process.line_distance import LineDistanceHistogramConfig, build_line_distance_histograms, default_pointcloud_file_path as line_distance_path
+from ..process.line_property import LinePropertyHistogramConfig, build_line_property_histograms, default_pointcloud_file_path as line_property_path
+from ..process.line_pipeline import MergeConfig, RansacConfig
 from ..process.bitflip import (
     BITFLIP_BASELINE_DEFAULT,
     BITFLIP_BIN_COUNTS,
@@ -29,6 +42,8 @@ from ..process.bitflip import (
     BITFLIP_COUNT_LABELS,
     BITFLIP_VARIANTS,
     accumulate_bitflip_histograms,
+    build_bitflip_histograms,
+    build_labeled_bitflip_histograms,
 )
 from ..process.progress import ProgressReporter, emit_progress
 from ..process.saturation import (
@@ -36,9 +51,17 @@ from ..process.saturation import (
     SATURATION_BIN_LABELS,
     SATURATION_VARIANTS,
     accumulate_saturation_histograms,
+    build_labeled_saturation_histograms,
+    build_saturation_histograms,
 )
 from ..storage.run_paths import collect_run_files, filter_dir, histogram_dir
 from ..utils.label_keys import label_title_from_key
+from ..utils.gagg_processing import (
+    GaggTraceProcessingRule,
+    default_gagg_trace_rules,
+    require_gagg_peak_config,
+)
+from ..process.gagg_parameters import GaggFitParameters
 from ..utils.trace_data import (
     CDF_THRESHOLDS,
     CDF_VALUE_BINS,
@@ -71,14 +94,17 @@ SUPPORTED_METRICS = (
     "line_distance",
     "line_property",
     "coplanar",
+    "trace",
 )
 DEFAULT_VARIANTS = {
     "bitflip": "baseline",
     "saturation": "drop",
+    "trace": "all",
 }
 METRIC_VARIANTS = {
     "bitflip": BITFLIP_VARIANTS,
     "saturation": SATURATION_VARIANTS,
+    "trace": ("all", "yes", "no"),
 }
 ARTIFACT_SUFFIXES = {
     ("cdf", "all"): ("_cdf.npy",),
@@ -209,6 +235,11 @@ class HistogramService:
         peak_rel_height: float = 0.95,
         detector_baseline_window_scales: dict[str, float] | None = None,
         detector_peak_configs: dict[str, dict[str, float]] | None = None,
+        gagg_trace_rules: dict[int, GaggTraceProcessingRule] | None = None,
+        gagg_fit_parameters: GaggFitParameters | None = None,
+        gagg_valid_indexes: tuple[int, ...] | None = None,
+        ransac_config: RansacConfig = RansacConfig(),
+        merge_config: MergeConfig = MergeConfig(),
         bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
         saturation_threshold: float = 2000.0,
         saturation_drop_threshold: float = 10.0,
@@ -241,6 +272,13 @@ class HistogramService:
             peak_rel_height=peak_rel_height,
             detector_peak_configs=detector_peak_configs,
         )
+        self.gagg_trace_rules = gagg_trace_rules or default_gagg_trace_rules(
+            baseline_window_scale=self._baseline_window_scale_for(DETECTOR_GAGG)
+        )
+        self.gagg_fit_parameters = gagg_fit_parameters
+        self.gagg_valid_indexes = tuple(gagg_valid_indexes or tuple(sorted(self.gagg_trace_rules)))
+        self.ransac_config = ransac_config
+        self.merge_config = merge_config
         self.bitflip_baseline_threshold = bitflip_baseline_threshold
         self.saturation_threshold = saturation_threshold
         self.saturation_drop_threshold = saturation_drop_threshold
@@ -356,13 +394,93 @@ class HistogramService:
             filter_file=filter_file,
         )
         resolved_veto = veto if mode == "filtered" else False
+        cached = self._load_webui_histogram_cache(
+            metric=metric,
+            mode=mode,
+            run=run,
+            detector=resolved_detector,
+            variant=resolved_variant,
+            filter_file=filter_file,
+            veto=resolved_veto,
+        )
+        if cached is not None:
+            return cached
+        payload = self._get_uncached_histogram(
+            metric=metric,
+            mode=mode,
+            run=run,
+            detector=resolved_detector,
+            variant=resolved_variant,
+            filter_file=filter_file,
+            veto=resolved_veto,
+            progress=progress,
+        )
+        self._save_webui_histogram_cache(
+            metric=metric,
+            mode=mode,
+            run=run,
+            detector=resolved_detector,
+            variant=resolved_variant,
+            filter_file=filter_file,
+            veto=resolved_veto,
+            payload=payload,
+        )
+        return payload
+
+    def get_cached_histogram(
+        self,
+        *,
+        metric: str,
+        mode: str,
+        run: int,
+        detector: str | None = None,
+        variant: str | None = None,
+        filter_file: str | None = None,
+        veto: bool = False,
+    ) -> dict[str, Any]:
+        resolved_detector = normalize_detector(detector)
+        resolved_variant = self._validate_histogram_request(
+            metric=metric,
+            mode=mode,
+            run=run,
+            detector=resolved_detector,
+            variant=variant,
+            filter_file=filter_file,
+        )
+        cached = self._load_webui_histogram_cache(
+            metric=metric,
+            mode=mode,
+            run=run,
+            detector=resolved_detector,
+            variant=resolved_variant,
+            filter_file=filter_file,
+            veto=veto if mode == "filtered" else False,
+        )
+        if cached is None:
+            raise LookupError("histogram cache entry not found")
+        return cached
+
+    def _get_uncached_histogram(
+        self,
+        *,
+        metric: str,
+        mode: str,
+        run: int,
+        detector: str,
+        variant: str | None,
+        filter_file: str | None,
+        veto: bool,
+        progress: ProgressReporter | None,
+    ) -> dict[str, Any]:
+        if detector == DETECTOR_GAGG and metric == "trace":
+            return self._build_gagg_trace_density(run=run, selection=str(variant), progress=progress)
         if mode == "filtered":
             return self._build_filtered_histogram(
                 metric=metric,
-                variant=resolved_variant,
+                variant=variant,
                 run=run,
                 filter_file=filter_file,
-                veto=resolved_veto,
+                veto=veto,
                 progress=progress,
             )
 
@@ -370,39 +488,45 @@ class HistogramService:
             metric=metric,
             mode=mode,
             run=run,
-            detector=resolved_detector,
-            variant=resolved_variant,
+            detector=detector,
+            variant=variant,
         )
         if runtime_payload is not None:
             return runtime_payload
 
-        artifact_path = self._artifact_path(
+        # Legacy CLI artifacts have no complete cache metadata, so only the
+        # WebUI cache written above is trusted for ATTPC and phase-2 metrics.
+        artifact_path = None if detector == DETECTOR_ATTPC else self._artifact_path(
             metric=metric,
             mode=mode,
             run=run,
-            detector=resolved_detector,
+            detector=detector,
         )
         if artifact_path is None:
-            raise LookupError(
-                f"no {metric} histogram artifact found for run {run} in {mode} mode"
+            payload = self._build_attpc_histogram_payload(
+                metric=metric,
+                mode=mode,
+                run=run,
+                variant=variant,
+                progress=progress,
             )
-
-        payload = _load_artifact_payload(artifact_path, allow_pickle=mode == "labeled")
+        else:
+            payload = _load_artifact_payload(artifact_path, allow_pickle=mode == "labeled")
         if metric == "cdf":
             return self._normalize_cdf_payload(
                 run=run,
                 mode=mode,
                 payload=payload,
-                detector=resolved_detector,
-                veto=resolved_veto,
+                detector=detector,
+                veto=veto,
             )
         if metric == "amplitude":
             return self._normalize_amplitude_payload(
                 run=run,
                 mode=mode,
                 payload=payload,
-                detector=resolved_detector,
-                veto=resolved_veto,
+                detector=detector,
+                veto=veto,
             )
         if metric == "line_distance":
             return serialize_line_distance_payload(run, _mapping_payload(payload))
@@ -410,13 +534,88 @@ class HistogramService:
             return serialize_line_property_payload(run, _mapping_payload(payload))
         return self._normalize_generic_1d_payload(
             metric=metric,
-            variant=resolved_variant,
+            variant=variant,
             run=run,
             mode=mode,
             payload=payload,
-            detector=resolved_detector,
-            veto=resolved_veto,
+            detector=detector,
+            veto=veto,
         )
+
+    def _build_attpc_histogram_payload(
+        self,
+        *,
+        metric: str,
+        mode: str,
+        run: int,
+        variant: str | None,
+        progress: ProgressReporter | None,
+    ) -> Any:
+        if mode not in {"all", "labeled"}:
+            raise LookupError(f"no {metric} histogram artifact found for run {run} in {mode} mode")
+        trace_file = self.run_files[run]
+        baseline_scale = self._baseline_window_scale_for(DETECTOR_ATTPC)
+        peak_config = self._peak_config_for(DETECTOR_ATTPC)
+        if metric == "cdf":
+            return (
+                build_trace_cdf_histogram(trace_file, baseline_scale, progress=progress)
+                if mode == "all"
+                else build_labeled_cdf_histograms(self.trace_path, self.workspace, run, baseline_scale, progress)
+            )
+        if metric == "amplitude":
+            kwargs = {
+                "baseline_window_scale": baseline_scale,
+                "peak_separation": peak_config["peak_separation"],
+                "peak_prominence": peak_config["peak_prominence"],
+                "peak_width": peak_config["peak_width"],
+                "peak_threshold": peak_config["peak_threshold"],
+                "rel_height": peak_config["peak_rel_height"],
+                "progress": progress,
+            }
+            return (
+                build_amplitude_histogram(trace_file, detector=DETECTOR_ATTPC, **kwargs)
+                if mode == "all"
+                else build_labeled_amplitude_histograms(self.trace_path, self.workspace, run, **kwargs)
+            )
+        if metric == "baseline":
+            return (
+                build_baseline_histogram(trace_file, baseline_window_scale=baseline_scale, progress=progress)
+                if mode == "all"
+                else build_labeled_baseline_histograms(self.trace_path, self.workspace, run, baseline_window_scale=baseline_scale, progress=progress)
+            )
+        if metric == "bitflip":
+            return (
+                build_bitflip_histograms(trace_file, baseline_window_scale=baseline_scale, baseline_threshold=self.bitflip_baseline_threshold, progress=progress)
+                if mode == "all"
+                else build_labeled_bitflip_histograms(self.trace_path, self.workspace, run, baseline_window_scale=baseline_scale, baseline_threshold=self.bitflip_baseline_threshold, progress=progress)
+            )
+        if metric == "saturation":
+            kwargs = {
+                "baseline_window_scale": baseline_scale,
+                "threshold": self.saturation_threshold,
+                "drop_threshold": self.saturation_drop_threshold,
+                "window_radius": self.saturation_window_radius,
+                "progress": progress,
+            }
+            return (
+                build_saturation_histograms(trace_file, **kwargs)
+                if mode == "all"
+                else build_labeled_saturation_histograms(self.trace_path, self.workspace, run, **kwargs)
+            )
+        if mode == "all" and metric == "coplanar":
+            return build_coplanar_histogram(pointcloud_file_path=coplanar_path(self.workspace, run), run=run, progress=progress)
+        if mode == "all" and metric == "line_distance":
+            return build_line_distance_histograms(
+                pointcloud_file_path=line_distance_path(self.workspace, run), run=run,
+                ransac_config=self.ransac_config, histogram_config=LineDistanceHistogramConfig(), progress=progress,
+            )
+        if mode == "all" and metric == "line_property":
+            return build_line_property_histograms(
+                pointcloud_file_path=line_property_path(self.workspace, run), run=run,
+                ransac_config=self.ransac_config, merge_config=self.merge_config,
+                histogram_config=LinePropertyHistogramConfig(), progress=progress,
+            )
+        raise LookupError(f"no builder is available for {metric}/{mode}")
 
     def create_histogram_job(
         self,
@@ -430,8 +629,6 @@ class HistogramService:
         veto: bool = False,
     ) -> str:
         resolved_detector = normalize_detector(detector)
-        if mode != "filtered":
-            raise ValueError("histogram jobs are only available for filtered mode")
         resolved_variant = self._validate_histogram_request(
             metric=metric,
             mode=mode,
@@ -460,6 +657,127 @@ class HistogramService:
     ) -> tuple[int, dict] | None:
         return self.jobs.next_message(job_id, after_index)
 
+    def _webui_cache_path(
+        self,
+        *,
+        metric: str,
+        mode: str,
+        run: int,
+        detector: str,
+        variant: str | None,
+        filter_file: str | None,
+        veto: bool,
+    ) -> Path:
+        variant_token = variant or "none"
+        filter_token = re.sub(r"[^a-zA-Z0-9_.-]+", "_", filter_file or "none")
+        return histogram_dir(self.workspace) / (
+            f"run_{run:04d}_webui_detector_{detector.lower()}_metric_{metric}"
+            f"_mode_{mode}_variant_{variant_token}_filter_{filter_token}_veto_{int(veto)}.npz"
+        )
+
+    def _webui_cache_metadata(
+        self,
+        *,
+        metric: str,
+        mode: str,
+        run: int,
+        detector: str,
+        variant: str | None,
+        filter_file: str | None,
+        veto: bool,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "version": 1,
+            "run": run,
+            "metric": metric,
+            "mode": mode,
+            "detector": detector,
+            "variant": variant or "none",
+            "filter_file": filter_file or "none",
+            "veto": veto,
+            "trace_file": _file_fingerprint(self.run_files[run]),
+        }
+        if mode == "filtered" and filter_file:
+            metadata["filter"] = _file_fingerprint(self._filter_path(filter_file))
+        if mode == "labeled":
+            metadata["labels"] = _file_fingerprint(self.workspace / "labels.db")
+        if metric in {"cdf", "amplitude", "baseline", "bitflip", "saturation", "time"}:
+            metadata["baseline_window_scale"] = self._baseline_window_scale_for(detector)
+        if metric == "amplitude" or (metric == "time" and detector != DETECTOR_GAGG):
+            metadata["peak_config"] = self._peak_config_for(detector)
+        if metric == "bitflip":
+            metadata["bitflip_baseline_threshold"] = self.bitflip_baseline_threshold
+        if metric == "saturation":
+            metadata["saturation"] = {
+                "threshold": self.saturation_threshold,
+                "drop_threshold": self.saturation_drop_threshold,
+                "window_radius": self.saturation_window_radius,
+            }
+        if detector == DETECTOR_GAGG:
+            metadata["gagg_baseline_rules"] = {
+                str(index): rule.baseline_window_scale
+                for index, rule in self.gagg_trace_rules.items()
+            }
+            if metric == "time":
+                metadata["gagg_peak_configs"] = {
+                    str(index): (
+                        None if rule.peak_config is None else rule.peak_config.as_dict()
+                    )
+                    for index, rule in self.gagg_trace_rules.items()
+                }
+        if metric in {"coplanar", "line_distance", "line_property"}:
+            pointcloud_path = {
+                "coplanar": coplanar_path,
+                "line_distance": line_distance_path,
+                "line_property": line_property_path,
+            }[metric](self.workspace, run)
+            metadata["pointcloud_file"] = _file_fingerprint(pointcloud_path)
+        if metric in {"line_distance", "line_property"}:
+            metadata["ransac"] = {
+                "residual_threshold": self.ransac_config.residual_threshold,
+                "max_trials": self.ransac_config.max_trials,
+                "max_iterations": self.ransac_config.max_iterations,
+                "target_labeled_ratio": self.ransac_config.target_labeled_ratio,
+                "min_inliers": self.ransac_config.min_inliers,
+                "max_start_radius": self.ransac_config.max_start_radius,
+            }
+        if metric == "line_property":
+            metadata["merge"] = {
+                "distance_threshold": self.merge_config.distance_threshold,
+                "angle_threshold": self.merge_config.angle_threshold,
+            }
+        return metadata
+
+    def _load_webui_histogram_cache(self, **request: Any) -> dict[str, Any] | None:
+        path = self._webui_cache_path(**request)
+        if not path.exists():
+            return None
+        try:
+            payload = _mapping_payload(_load_artifact_payload(path, allow_pickle=False))
+            metadata = json.loads(str(np.asarray(payload["metadata_json"]).item()))
+            if metadata != self._webui_cache_metadata(**request):
+                return None
+            return json.loads(str(np.asarray(payload["payload_json"]).item()))
+        except (KeyError, OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+
+    def _save_webui_histogram_cache(self, *, payload: dict[str, Any], **request: Any) -> None:
+        path = self._webui_cache_path(**request)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        metadata = self._webui_cache_metadata(**request)
+        with tempfile.NamedTemporaryFile(suffix=".npz", dir=path.parent, delete=False) as handle:
+            temporary_path = Path(handle.name)
+        try:
+            np.savez(
+                temporary_path,
+                metadata_json=np.asarray(json.dumps(metadata, sort_keys=True), dtype=np.str_),
+                payload_json=np.asarray(json.dumps(payload), dtype=np.str_),
+            )
+            temporary_path.replace(path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+
     def _filter_files(self) -> list[Path]:
         return sorted(filter_dir(self.workspace).glob("filter_*.npy"))
 
@@ -477,7 +795,7 @@ class HistogramService:
         if detector == DETECTOR_SI:
             return metric in {"baseline", "time"}
         if detector == DETECTOR_GAGG:
-            return metric == "baseline"
+            return metric in {"baseline", "time", "trace"}
         return False
 
     def _build_runtime_detector_histogram(
@@ -574,8 +892,8 @@ class HistogramService:
             if mode != "all":
                 raise ValueError("SI histograms only support mode 'all'")
         if detector == DETECTOR_GAGG:
-            if metric != "baseline":
-                raise ValueError("GAGG histograms only support 'baseline'")
+            if metric not in {"baseline", "time", "trace"}:
+                raise ValueError("GAGG histograms only support 'baseline', 'time', and 'trace'")
             if mode != "all":
                 raise ValueError("GAGG histograms only support mode 'all'")
         if metric in {"line_distance", "line_property", "coplanar"} and mode != "all":
@@ -640,7 +958,19 @@ class HistogramService:
             "variant": "none" if variant in {None, ""} else str(variant),
         }
         metadata["baseline_window_scale"] = self._baseline_window_scale_for(detector)
-        if metric in {"amplitude", "time"}:
+        if detector == DETECTOR_GAGG:
+            metadata["gagg_baseline_rules"] = {
+                str(index): rule.baseline_window_scale
+                for index, rule in self.gagg_trace_rules.items()
+            }
+            if metric == "time":
+                metadata["gagg_peak_configs"] = {
+                    str(index): (
+                        None if rule.peak_config is None else rule.peak_config.as_dict()
+                    )
+                    for index, rule in self.gagg_trace_rules.items()
+                }
+        if metric == "amplitude" or (metric == "time" and detector != DETECTOR_GAGG):
             metadata.update(self._peak_config_for(detector))
         return metadata
 
@@ -748,6 +1078,8 @@ class HistogramService:
             return self._compute_si_baseline_artifact(run)
         if detector == DETECTOR_GAGG and metric == "baseline":
             return self._compute_gagg_baseline_artifact(run)
+        if detector == DETECTOR_GAGG and metric == "time":
+            return self._compute_gagg_time_artifact(run)
         raise LookupError(
             f"unsupported detector histogram artifact request: {detector}/{metric}/{variant}"
         )
@@ -801,6 +1133,21 @@ class HistogramService:
                 if detector == DETECTOR_SI and metric == "time"
                 else int(metadata["bin_count"])
             )
+            series = [
+                {
+                    "labelKey": label_key,
+                    "title": label_titles[index],
+                    "traceCount": int(trace_counts[index]),
+                    "histogram": histograms[index].tolist(),
+                }
+                for index, label_key in enumerate(label_keys)
+                if detector != DETECTOR_GAGG or int(trace_counts[index]) > 0
+            ]
+            if detector == DETECTOR_GAGG:
+                series = _gagg_layer_total_series(
+                    histograms=histograms,
+                    trace_counts=trace_counts,
+                ) + series
             return {
                 "metric": metric,
                 "mode": "all",
@@ -810,15 +1157,7 @@ class HistogramService:
                 "binLabel": str(metadata["bin_label"]),
                 "countLabel": str(metadata["count_label"]),
                 "binCenters": bin_centers.tolist(),
-                "series": [
-                    {
-                        "labelKey": label_key,
-                        "title": label_titles[index],
-                        "traceCount": int(trace_counts[index]),
-                        "histogram": histograms[index].tolist(),
-                    }
-                    for index, label_key in enumerate(label_keys)
-                ],
+                "series": series,
             }
         raise LookupError(
             f"unsupported detector histogram payload: {detector}/{metric}/{variant}"
@@ -1063,11 +1402,7 @@ class HistogramService:
                 if reader_event_trace_count(reader, event_id, detector=DETECTOR_GAGG) <= 0:
                     continue
                 rows = reader_event_rows(reader, event_id, detector=DETECTOR_GAGG)
-                cleaned = preprocess_traces(
-                    np.asarray(rows, dtype=np.float32),
-                    baseline_window_scale=self._baseline_window_scale_for(DETECTOR_GAGG),
-                )
-                for trace_id, trace in enumerate(cleaned):
+                for trace_id, trace in _preprocess_gagg_rows(rows, self.gagg_trace_rules):
                     accumulate_baseline_histogram(
                         trace[np.newaxis, :],
                         histogram=histograms[trace_id],
@@ -1075,19 +1410,128 @@ class HistogramService:
                     trace_counts[trace_id] += 1
         finally:
             reader.close()
-        label_keys: list[str] = []
-        label_titles: list[str] = []
-        for trace_id in range(41):
-            layer = 0 if trace_id < 25 else 1
-            index = trace_id if layer == 0 else trace_id - 25
-            label_keys.append(f"layer_{layer}_index_{index}")
-            label_titles.append(f"Layer {layer} Index {index}")
+        label_keys, label_titles = _gagg_histogram_labels()
         return {
             "label_keys": np.asarray(label_keys, dtype=np.str_),
             "label_titles": np.asarray(label_titles, dtype=np.str_),
             "trace_counts": np.asarray(trace_counts, dtype=np.int64),
             "histograms": np.asarray(histograms, dtype=np.int64),
             "bin_centers": BASELINE_BIN_CENTERS.copy(),
+        }
+
+    def _build_gagg_trace_density(
+        self, *, run: int, selection: str, progress: ProgressReporter | None,
+    ) -> dict[str, Any]:
+        """Accumulate raw GAGG samples into compact 2-D density plots.
+
+        Raw lines are intentionally never sent to the browser: a 512x256 count
+        grid keeps the display responsive even for very large runs.
+        """
+        if selection != "all" and self.gagg_fit_parameters is None:
+            raise ValueError("GAGG trace saturation selection requires gagg_fit_parameters")
+        groups = ((0, 15), (16, 24), (25, 32), (33, 40))
+        grids = [np.zeros((512, 256), dtype=np.int64) for _ in groups]
+        counts = [0] * len(groups)
+        reader = open_storage_trace_reader(run=run, path=str(self.run_files[run]), detector=DETECTOR_GAGG)
+        total = int(reader.max_event) - int(reader.min_event) + 1
+        try:
+            for offset, event_id in enumerate(range(int(reader.min_event), int(reader.max_event) + 1)):
+                if reader_event_trace_count(reader, event_id, detector=DETECTOR_GAGG) <= 0:
+                    continue
+                rows = np.asarray(reader_event_rows(reader, event_id, detector=DETECTOR_GAGG))
+                if rows.ndim != 2 or rows.shape[1] < 2:
+                    continue
+                flags, traces = rows[:, 0].astype(np.int64), rows[:, 1:]
+                for index in self.gagg_valid_indexes:
+                    if index >= len(traces) or flags[index] & 0b10:
+                        continue
+                    trace = np.asarray(traces[index], dtype=float)
+                    # The low-index electronics has no over-range bit.  Its
+                    # calibrated integral/peak inconsistency is the clipping test.
+                    if selection == "all":
+                        saturated = False
+                    elif index < 16:
+                        rule = self.gagg_trace_rules.get(index)
+                        if rule is None:
+                            continue
+                        peak_config = require_gagg_peak_config(rule, index=index)
+                        cleaned = fft_filter_traces(
+                            trace[np.newaxis, :], trace_length=TraceLength.TB256,
+                            baseline_window_scale=rule.baseline_window_scale,
+                        )
+                        peaks = find_trace_peaks(
+                            cleaned, peak_separation=peak_config.peak_separation,
+                            peak_prominence=peak_config.peak_prominence,
+                            peak_max_width=peak_config.peak_width,
+                            peak_threshold=peak_config.peak_threshold,
+                            rel_height=peak_config.rel_height,
+                        )
+                        if len(peaks) == 0:
+                            saturated = False
+                        else:
+                            selected_peak = max(peaks, key=lambda row: float(row[1]))
+                            peak, integral = float(selected_peak[1]), float(selected_peak[2])
+                            expected = self.gagg_fit_parameters.p0[index] + self.gagg_fit_parameters.p1[index] * integral
+                            saturated = peak > self.gagg_fit_parameters.linear_clipped and abs(expected - peak) > self.gagg_fit_parameters.linear_window
+                    else:
+                        saturated = bool(flags[index] & 0b01)
+                    if selection == "yes" and not saturated or selection == "no" and saturated:
+                        continue
+                    group = next((i for i, (low, high) in enumerate(groups) if low <= index <= high), None)
+                    if group is None:
+                        continue
+                    sample_count = min(256, len(trace))
+                    maximum = 4095.0 if index >= 33 else 16383.0
+                    y = np.clip((trace[:sample_count] * 512 / (maximum + 1)).astype(int), 0, 511)
+                    np.add.at(grids[group], (y, np.arange(sample_count)), 1)
+                    counts[group] += 1
+                if offset % 25 == 0:
+                    emit_progress(progress, current=offset + 1, total=total, unit="events", message="Accumulating GAGG trace density")
+        finally:
+            reader.close()
+        plots = []
+        for position, ((low, high), grid, count) in enumerate(zip(groups, grids, counts)):
+            maximum = 4095.0 if low >= 33 else 16383.0
+            plots.append({"key": f"{low}-{high}", "title": f"GAGG indices {low}–{high}", "histogram": grid.tolist(), "xBinCenters": list(range(256)), "yBinCenters": ((np.arange(512) + 0.5) * (maximum + 1) / 512).tolist(), "traceCount": count})
+        return {"metric": "trace", "mode": "all", "run": run, "detector": DETECTOR_GAGG, "variant": selection, "series": [], "plots": plots}
+
+    def _compute_gagg_time_artifact(self, run: int) -> dict[str, Any]:
+        histograms = [np.zeros(256, dtype=np.int64) for _ in range(41)]
+        trace_counts = [0 for _ in range(41)]
+        reader = open_storage_trace_reader(
+            run=run,
+            path=str(self.run_files[run]),
+            detector=DETECTOR_GAGG,
+        )
+        try:
+            for event_id in range(int(reader.min_event), int(reader.max_event) + 1):
+                if reader_event_trace_count(reader, event_id, detector=DETECTOR_GAGG) <= 0:
+                    continue
+                rows = reader_event_rows(reader, event_id, detector=DETECTOR_GAGG)
+                for trace_id, trace in _preprocess_gagg_rows(rows, self.gagg_trace_rules):
+                    peak_config = require_gagg_peak_config(
+                        self.gagg_trace_rules[trace_id], index=trace_id
+                    ).as_dict()
+                    peaks, _ = signal.find_peaks(
+                        trace,
+                        distance=peak_config["peak_separation"],
+                        height=peak_config["peak_threshold"],
+                        prominence=peak_config["peak_prominence"],
+                        width=(1.0, peak_config["peak_width"]),
+                        rel_height=peak_config["peak_rel_height"],
+                    )
+                    for peak in peaks:
+                        histograms[trace_id][int(np.clip(peak, 0, 255))] += 1
+                    trace_counts[trace_id] += 1
+        finally:
+            reader.close()
+        label_keys, label_titles = _gagg_histogram_labels()
+        return {
+            "label_keys": np.asarray(label_keys, dtype=np.str_),
+            "label_titles": np.asarray(label_titles, dtype=np.str_),
+            "trace_counts": np.asarray(trace_counts, dtype=np.int64),
+            "histograms": np.asarray(histograms, dtype=np.int64),
+            "bin_centers": np.arange(256, dtype=np.int64),
         }
 
     def _normalize_cdf_payload(
@@ -1803,6 +2247,56 @@ def _bin_centers(edges: np.ndarray) -> np.ndarray:
     return (values[:-1] + values[1:]) / 2.0
 
 
+def _gagg_histogram_labels() -> tuple[list[str], list[str]]:
+    label_keys: list[str] = []
+    label_titles: list[str] = []
+    for trace_id in range(41):
+        layer = 1 if trace_id < 25 else 2
+        index = trace_id if layer == 1 else trace_id - 25
+        label_keys.append(f"layer_{layer}_index_{index}")
+        label_titles.append(f"Layer {layer} Index {index}")
+    return label_keys, label_titles
+
+
+def _preprocess_gagg_rows(
+    rows: np.ndarray, rules: dict[int, GaggTraceProcessingRule]
+) -> list[tuple[int, np.ndarray]]:
+    rows_array = np.asarray(rows, dtype=np.float32)
+    processed: list[tuple[int, np.ndarray]] = []
+    for scale in sorted({rule.baseline_window_scale for rule in rules.values()}):
+        trace_ids = [
+            trace_id
+            for trace_id, rule in rules.items()
+            if rule.baseline_window_scale == scale and trace_id < rows_array.shape[0]
+        ]
+        if not trace_ids:
+            continue
+        cleaned = preprocess_traces(
+            rows_array[trace_ids], baseline_window_scale=scale
+        )
+        processed.extend(zip(trace_ids, cleaned, strict=True))
+    return processed
+
+
+def _gagg_layer_total_series(
+    *, histograms: np.ndarray, trace_counts: np.ndarray
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "labelKey": "layer_1_total",
+            "title": "Layer 1 (all crystals)",
+            "traceCount": int(trace_counts[:25].sum()),
+            "histogram": histograms[:25].sum(axis=0, dtype=np.int64).tolist(),
+        },
+        {
+            "labelKey": "layer_2_total",
+            "title": "Layer 2 (all crystals)",
+            "traceCount": int(trace_counts[25:].sum()),
+            "histogram": histograms[25:].sum(axis=0, dtype=np.int64).tolist(),
+        },
+    ]
+
+
 def _load_artifact_payload(path: Path, *, allow_pickle: bool) -> Any:
     return np.load(path, allow_pickle=allow_pickle)
 
@@ -1813,3 +2307,8 @@ def _mapping_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload, np.ndarray):
         return payload.item()
     return payload
+
+
+def _file_fingerprint(path: Path) -> dict[str, int]:
+    stat = path.stat()
+    return {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}

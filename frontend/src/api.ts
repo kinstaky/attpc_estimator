@@ -16,6 +16,8 @@ import type {
   StrangeLabel,
   TracePayload,
   DetectorName,
+  GaggFit,
+  GaggFitResultsPayload,
 } from "./types";
 
 interface ErrorBody {
@@ -97,6 +99,20 @@ export function setSession(payload: SessionPayload): Promise<SessionResponse> {
 
 export function getCurrentTrace(): Promise<TracePayload> {
   return request<TracePayload>("/api/traces/current");
+}
+
+export function getCurrentGaggFit(): Promise<GaggFit> {
+  return request<GaggFit>("/api/traces/current/gagg-fit");
+}
+
+export function getGaggFitResults(
+  startRun?: number | null, endRun?: number | null, gaggIndex?: number | null,
+): Promise<GaggFitResultsPayload> {
+  const params = new URLSearchParams();
+  if (startRun !== null && startRun !== undefined) params.set("startRun", String(startRun));
+  if (endRun !== null && endRun !== undefined) params.set("endRun", String(endRun));
+  if (gaggIndex !== null && gaggIndex !== undefined) params.set("gaggIndex", String(gaggIndex));
+  return request<GaggFitResultsPayload>(`/api/gagg-fit-results?${params.toString()}`);
 }
 
 export function getStrangeLabels(): Promise<{ strangeLabels: StrangeLabel[] }> {
@@ -278,9 +294,36 @@ export function getHistogram(
   return request<HistogramPayload>(`/api/histograms?${params.toString()}`);
 }
 
+export function getCachedHistogram(
+  metric: HistogramMetric,
+  mode: "all" | "labeled" | "filtered",
+  run: number,
+  detector: DetectorName = "ATTPC",
+  variant: HistogramVariant | "" = "",
+  filterFile = "",
+  veto = false,
+): Promise<HistogramPayload> {
+  const params = new URLSearchParams({
+    metric,
+    mode,
+    run: String(run),
+    detector,
+  });
+  if (variant) {
+    params.set("variant", variant);
+  }
+  if (filterFile) {
+    params.set("filterFile", filterFile);
+  }
+  if (veto) {
+    params.set("veto", "true");
+  }
+  return request<HistogramPayload>(`/api/histograms/cache?${params.toString()}`);
+}
+
 export function createHistogramJob(
   metric: HistogramMetric,
-  mode: "filtered",
+  mode: "all" | "labeled" | "filtered",
   run: number,
   variant: HistogramVariant | "" = "",
   filterFile = "",

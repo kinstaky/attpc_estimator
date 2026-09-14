@@ -87,6 +87,17 @@ function toggleVisualMode(): void {
           : "raw";
 }
 
+function reverseVisualMode(): void {
+  state.visualMode =
+    state.visualMode === "raw"
+      ? "peak"
+      : state.visualMode === "peak"
+        ? "curvature"
+        : state.visualMode === "curvature"
+          ? "cdf"
+          : "raw";
+}
+
 async function enterLabelMode(run: number | null | undefined): Promise<void> {
   if (run === null || run === undefined) {
     throw new Error("Select a run before entering label mode.");
@@ -333,6 +344,7 @@ export function useLabelStore() {
     cancelSelectionMode,
     setVisualMode,
     toggleVisualMode,
+    reverseVisualMode,
     applyUiState,
     serializeUiState,
     enterLabelMode,

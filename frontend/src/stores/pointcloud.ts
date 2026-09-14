@@ -167,6 +167,10 @@ function toggleLayoutMode(): void {
   state.layoutMode = state.layoutMode === "1x1" ? "2x2" : "1x1";
 }
 
+function reverseLayoutMode(): void {
+  toggleLayoutMode();
+}
+
 function setPanelType(index: number, value: string): void {
   state.panelTypes[index] = value;
 }
@@ -375,6 +379,7 @@ export function usePointcloudStore() {
     setSelectedLabel,
     setLayoutMode,
     toggleLayoutMode,
+    reverseLayoutMode,
     setPanelType,
     loadEvent,
     restoreCurrentSession,

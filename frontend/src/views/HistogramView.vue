@@ -213,6 +213,28 @@
       :scale-mode="store.scaleMode.value"
     />
 
+    <v-card v-if="store.state.selectedDetector === 'GAGG' && store.state.selectedMetric === 'fit'" class="mt-4" rounded="xl">
+      <v-card-title>
+        <p class="page-kicker">GAGG gamma fits</p>
+        <h2>Fit results</h2>
+      </v-card-title>
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="12" md="4"><v-select :items="fitIndexOptions" label="GAGG index" :model-value="fitIndex" variant="outlined" @update:model-value="fitIndex = $event" /></v-col>
+          <v-col cols="12" md="3" class="d-flex align-center"><v-btn color="primary" :loading="fitLoading" @click="loadFitResults">Plot</v-btn></v-col>
+        </v-row>
+        <v-alert v-if="fitResults && !fitResults.available" class="mt-2" color="warning" variant="tonal">{{ fitResults.message }}</v-alert>
+        <p v-else-if="fitResults" class="page-copy mt-2">{{ fitResults.count }} fitted traces match the selected filters.</p>
+        <GaggFitResultPlots v-if="fitResults?.available" class="mt-2" :payload="fitResults" />
+      </v-card-text>
+    </v-card>
+
+    <GaggTraceDensityPlots
+      v-if="store.state.selectedDetector === 'GAGG' && store.state.selectedMetric === 'trace' && (store.state.histogram?.plots?.length || 0) > 0"
+      class="mt-4"
+      :plots="store.state.histogram?.plots || []"
+    />
+
     <LinePropertyPlots
       v-else-if="store.state.selectedMetric === 'line_property' && (store.state.histogram?.plots?.length || 0) > 0"
       class="mt-4"
@@ -292,19 +314,41 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import LineDistancePlots from "../components/LineDistancePlots.vue";
 import LinePropertyPlots from "../components/LinePropertyPlots.vue";
 import ResultPlot from "../components/ResultPlot.vue";
+import GaggFitResultPlots from "../components/GaggFitResultPlots.vue";
+import GaggTraceDensityPlots from "../components/GaggTraceDensityPlots.vue";
+import { getGaggFitResults } from "../api";
 import { useHistogramStore } from "../stores/histograms";
 import { useShellStore } from "../stores/shell";
-import type { HistogramAvailabilityEntry, HistogramMetric, HistogramVariant } from "../types";
+import type { GaggFitResultsPayload, HistogramAvailabilityEntry, HistogramMetric, HistogramVariant } from "../types";
 
 const shell = useShellStore();
 const store = useHistogramStore();
 const draggedSeriesKey = ref<string | null>(null);
 const dropTargetKey = ref<string | null>(null);
+const fitIndex = ref<number | null>(0);
+const fitResults = ref<GaggFitResultsPayload | null>(null);
+const fitLoading = ref(false);
+const fitIndexOptions = computed(() => [
+  ...Array.from({ length: 41 }, (_, index) => ({ title: String(index), value: index })),
+]);
+
+async function loadFitResults() {
+  fitLoading.value = true;
+  try {
+    fitResults.value = await getGaggFitResults(store.state.selectedRun, store.state.selectedRun, fitIndex.value);
+  } finally {
+    fitLoading.value = false;
+  }
+}
+
+watch(() => [store.state.selectedDetector, store.state.selectedMetric, store.state.selectedRun], ([detector, metric]) => {
+  if (detector === "GAGG" && metric === "fit") void loadFitResults();
+});
 
 const runOptions = computed(() =>
   (shell.state.bootstrap?.runs || []).map((run) => ({
@@ -354,7 +398,12 @@ const metricOptions = computed(() => {
         { title: "Baseline", value: "baseline" },
       ];
     }
-    return [{ title: "Baseline", value: "baseline" }];
+    return [
+      { title: "Time", value: "time" },
+      { title: "Baseline", value: "baseline" },
+      { title: "Fit", value: "fit" },
+      { title: "Trace", value: "trace" },
+    ];
   }
   return [
     { title: "Amplitude", value: "amplitude" },
@@ -366,6 +415,7 @@ const metricOptions = computed(() => {
 });
 
 const selectedVariant = computed(() => {
+  if (store.state.selectedDetector === "GAGG" && store.state.selectedMetric === "trace") return store.state.selectedGaggTraceSaturation;
   if (store.state.selectedMetric === "bitflip") {
     return store.state.selectedBitflipVariant;
   }
@@ -376,6 +426,9 @@ const selectedVariant = computed(() => {
 });
 
 const variantOptions = computed(() => {
+  if (store.state.selectedDetector === "GAGG" && store.state.selectedMetric === "trace") {
+    return [{ title: "All", value: "all" }, { title: "Saturated / clipped", value: "yes" }, { title: "Not saturated / clipped", value: "no" }];
+  }
   if (store.state.selectedMetric === "bitflip") {
     if (store.state.selectedDetector !== "ATTPC") {
       return [];
@@ -481,7 +534,10 @@ function onVariantChange(value: string): void {
   void store.setSelectedVariant(value as HistogramVariant);
 }
 
-onMounted(() => {
-  void store.init();
+onMounted(async () => {
+  await store.init();
+  if (store.state.selectedDetector === "GAGG") {
+    await loadFitResults();
+  }
 });
 </script>

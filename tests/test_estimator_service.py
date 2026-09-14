@@ -149,9 +149,9 @@ def write_gagg_sparse_hdf5_input(path) -> None:
             data_1904 = np.arange(8 * 256, dtype=np.float32).reshape(8, 256) + (event_id * 200.0)
             data_1905 = np.arange(7 * 256, dtype=np.float32).reshape(7, 256) + (event_id * 300.0)
             data_1906 = np.arange(16 * 257, dtype=np.float32).reshape(16, 257) + (event_id * 400.0)
-            frib.create_dataset("1903", data=data_1903)
-            frib.create_dataset("1904", data=data_1904)
-            frib.create_dataset("1905", data=data_1905)
+            for name, data in (("1903", data_1903), ("1904", data_1904), ("1905", data_1905)):
+                dataset = frib.create_dataset(name, data=data)
+                dataset.attrs["over_range"] = 0
             frib.create_dataset("1906", data=data_1906)
             frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
 
@@ -171,9 +171,9 @@ def write_gagg_sparse_hdf5_input_129(path) -> None:
             data_1904 = np.arange(8 * 256, dtype=np.float32).reshape(8, 256) + (event_id * 200.0)
             data_1905 = np.arange(7 * 256, dtype=np.float32).reshape(7, 256) + (event_id * 300.0)
             data_1906 = np.arange(16 * 129, dtype=np.float32).reshape(16, 129) + (event_id * 400.0)
-            frib.create_dataset("1903", data=data_1903)
-            frib.create_dataset("1904", data=data_1904)
-            frib.create_dataset("1905", data=data_1905)
+            for name, data in (("1903", data_1903), ("1904", data_1904), ("1905", data_1905)):
+                dataset = frib.create_dataset(name, data=data)
+                dataset.attrs["over_range"] = 0
             frib.create_dataset("1906", data=data_1906)
             frib.create_dataset("977", data=np.asarray([2], dtype=np.uint16))
 
@@ -603,7 +603,7 @@ def test_direct_review_mode_supports_gagg_event_and_trace_navigation(tmp_path) -
     }
     assert first["traceMetadata"] == {
         "kind": "gagg",
-        "layer": 0,
+        "layer": 1,
         "index": 24,
     }
     assert first["eventContext"]["current"]["selector"]["layerCounts"] == {
@@ -620,7 +620,7 @@ def test_direct_review_mode_supports_gagg_event_and_trace_navigation(tmp_path) -
     }
     assert next_trace["traceMetadata"] == {
         "kind": "gagg",
-        "layer": 1,
+        "layer": 2,
         "index": 0,
     }
 

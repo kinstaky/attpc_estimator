@@ -7,8 +7,13 @@
       class="trace-plot trace-plot--secondary"
     ></div>
     <div
-      v-if="visualMode === 'curvature'"
+      v-if="visualMode === 'curvature' || (visualMode === 'fit' && hasFitComparisons)"
       ref="tertiaryRoot"
+      class="trace-plot trace-plot--secondary"
+    ></div>
+    <div
+      v-if="visualMode === 'fit' && hasFitComparisons"
+      ref="quaternaryRoot"
       class="trace-plot trace-plot--secondary"
     ></div>
   </div>
@@ -27,6 +32,7 @@ const props = defineProps({
 const primaryRoot = ref(null);
 const secondaryRoot = ref(null);
 const tertiaryRoot = ref(null);
+const quaternaryRoot = ref(null);
 let syncingCurvatureRange = false;
 let curvatureRange = null;
 
@@ -78,8 +84,20 @@ const displayTrace = computed(() => {
         }
       : trace.bitflipAnalysis,
     peakAnalysis: clipPeakAnalysis(trace.peakAnalysis, sampleCount),
+    gaggFit: trace.gaggFit
+      ? {
+          ...trace.gaggFit,
+          fitted: trace.gaggFit.fitted?.slice(0, sampleCount) ?? null,
+        }
+      : trace.gaggFit,
   };
 });
+
+const hasFitComparisons = computed(() => Boolean(
+  props.visualMode === "fit"
+  && displayTrace.value?.gaggFit?.clippedFree
+  && displayTrace.value?.gaggFit?.fixedTau,
+));
 
 function sampleIndices(values) {
   return values.map((_, index) => index);
@@ -337,6 +355,76 @@ async function renderPeakPlot(root) {
   );
 }
 
+async function renderGammaFitPlot(root, fit, title) {
+  if (!root || !props.trace) {
+    return;
+  }
+  const Plotly = await loadPlotly();
+  const trace = displayTrace.value;
+  const traces = [
+    {
+      type: "scatter",
+      mode: "lines",
+      x: sampleIndices(trace.raw),
+      y: trace.raw,
+      line: {
+        color: "#174f40",
+        width: 2.2,
+      },
+      name: "Raw trace",
+    },
+  ];
+  if (fit?.status === "ok" && fit.fitted) {
+    traces.push({
+      type: "scatter",
+      mode: "lines",
+      x: sampleIndices(fit.fitted),
+      y: fit.fitted,
+      line: {
+        color: "#a84a24",
+        width: 2.4,
+      },
+      name: "Gamma fit",
+    });
+  }
+  Plotly.react(
+    root,
+    traces,
+    {
+      ...baseLayout(),
+      title: {
+        text: fit?.status === "ok" ? title : `${title} Unavailable`,
+        x: 0.02,
+        xanchor: "left",
+      },
+      legend: {
+        orientation: "h",
+        x: 1,
+        xanchor: "right",
+        y: 1.16,
+      },
+      xaxis: sampleAxis(trace.trace.length),
+      yaxis: {
+        title: "Amplitude",
+        zeroline: false,
+        gridcolor: "#e7dfcf",
+      },
+      annotations: fit?.status === "unavailable"
+        ? [{
+            text: fit.reason || "No fit result is available for this trace.",
+            showarrow: false,
+            x: 0.5,
+            y: 0.92,
+            xref: "paper",
+            yref: "paper",
+            font: { color: "#a84a24" },
+          }]
+        : [],
+    },
+    defaultConfig(),
+  );
+}
+
 function clearRelayoutSyncHandlers() {
   primaryRoot.value?.removeAllListeners?.("plotly_relayout");
   secondaryRoot.value?.removeAllListeners?.("plotly_relayout");
@@ -421,6 +509,46 @@ async function renderFirstDerivativePlot(root) {
       xaxis: sampleAxis(analysis.xIndices.length, curvatureRange),
       yaxis: {
         title: "First derivative",
+        zeroline: false,
+        gridcolor: "#e7dfcf",
+      },
+      showlegend: false,
+    },
+    defaultConfig(),
+  );
+}
+
+async function renderGaggRawDerivativePlot(root) {
+  if (!root || !props.trace) {
+    return;
+  }
+  const Plotly = await loadPlotly();
+  const trace = displayTrace.value;
+  const derivative = trace.raw.map((value, index) => (
+    index === 0 ? 0 : value - trace.raw[index - 1]
+  ));
+
+  Plotly.react(
+    root,
+    [
+      {
+        type: "scatter",
+        mode: "lines",
+        x: sampleIndices(derivative),
+        y: derivative,
+        line: {
+          color: "#3b5ba9",
+          width: 1.8,
+        },
+        name: "Raw first derivative",
+      },
+    ],
+    {
+      ...baseLayout(),
+      title: { text: "Raw First Derivative", x: 0.02, xanchor: "left" },
+      xaxis: sampleAxis(derivative.length),
+      yaxis: {
+        title: "Raw first derivative",
         zeroline: false,
         gridcolor: "#e7dfcf",
       },
@@ -539,6 +667,9 @@ async function renderPlots() {
     if (tertiaryRoot.value) {
       Plotly.purge(tertiaryRoot.value);
     }
+    if (quaternaryRoot.value) {
+      Plotly.purge(quaternaryRoot.value);
+    }
     return;
   }
 
@@ -552,7 +683,45 @@ async function renderPlots() {
     if (tertiaryRoot.value) {
       Plotly.purge(tertiaryRoot.value);
     }
+    if (quaternaryRoot.value) {
+      Plotly.purge(quaternaryRoot.value);
+    }
     await renderPeakPlot(secondaryRoot.value);
+    return;
+  }
+
+  if (props.visualMode === "fit") {
+    curvatureRange = null;
+    await renderRawPlot(primaryRoot.value);
+    clearRelayoutSyncHandlers();
+    if (tertiaryRoot.value) {
+      if (!hasFitComparisons.value) {
+        Plotly.purge(tertiaryRoot.value);
+      }
+    }
+    if (secondaryRoot.value) {
+      await renderGammaFitPlot(secondaryRoot.value, displayTrace.value.gaggFit, "Free-tau recovery fit");
+    }
+    if (hasFitComparisons.value && tertiaryRoot.value && quaternaryRoot.value) {
+      await renderGammaFitPlot(tertiaryRoot.value, displayTrace.value.gaggFit.clippedFree, "Free-tau unmasked fit");
+      await renderGammaFitPlot(quaternaryRoot.value, displayTrace.value.gaggFit.fixedTau, "Fixed-tau masked fit");
+    }
+    return;
+  }
+
+  if (props.visualMode === "derivative") {
+    curvatureRange = null;
+    await renderRawPlot(primaryRoot.value);
+    clearRelayoutSyncHandlers();
+    if (tertiaryRoot.value) {
+      Plotly.purge(tertiaryRoot.value);
+    }
+    if (quaternaryRoot.value) {
+      Plotly.purge(quaternaryRoot.value);
+    }
+    if (secondaryRoot.value) {
+      await renderGaggRawDerivativePlot(secondaryRoot.value);
+    }
     return;
   }
 
@@ -572,6 +741,9 @@ async function renderPlots() {
   clearRelayoutSyncHandlers();
   if (tertiaryRoot.value) {
     Plotly.purge(tertiaryRoot.value);
+  }
+  if (quaternaryRoot.value) {
+    Plotly.purge(quaternaryRoot.value);
   }
   await renderFrequencyPlot(secondaryRoot.value);
 }

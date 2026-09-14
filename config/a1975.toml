@@ -1,0 +1,28 @@
+trace_path = "/network/sus50_data/a1975/graw"
+run = 106
+workspace = "/data/a1975/estimator"
+
+[attpc.baseline]
+fft_window_scale = 20.0
+
+[attpc.amplitude]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 50.0
+peak_threshold = 100.0
+rel_height = 0.95
+
+[attpc.bitflip]
+baseline = 10.0
+
+[ic.baseline]
+fft_window_scale = 20.0
+
+[ic.amplitude]
+peak_separation = 50.0
+peak_prominence = 20.0
+peak_width = 500.0
+peak_threshold = 100.0
+rel_height = 0.85
+ic_delay_time_bucket = 1100.0
+ic_multiplicity = 1

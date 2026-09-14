@@ -202,7 +202,7 @@
         </div>
         <div class="trace-stage-hints">
           <span>{{ navigationHintText }}</span>
-          <span>Press F to cycle the plot view.</span>
+          <span>Press F / Shift+F to cycle plot views forward / backward.</span>
         </div>
       </v-card-title>
 
@@ -212,49 +212,24 @@
           :visual-mode="review.state.visualMode"
         />
 
+        <v-row class="mt-2" dense>
+          <v-col v-for="card in traceInfoCards" :key="card.title" cols="12" md="3">
+            <v-card rounded="xl" variant="tonal">
+              <v-card-text>
+                <p class="page-kicker">{{ card.title }}</p>
+                <strong>{{ card.value }}</strong>
+                <p v-if="card.detail" class="mt-2 text-body-2">{{ card.detail }}</p>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
         <div class="trace-action-toolbar">
           <div class="trace-action-group">
             <v-btn variant="text" @click="review.previousReviewTrace()">Previous</v-btn>
             <v-btn variant="text" @click="review.nextReviewTrace()">Next</v-btn>
           </div>
         </div>
-
-        <v-row class="mt-2" dense>
-          <v-col cols="12" md="3">
-            <v-card rounded="xl" variant="tonal">
-              <v-card-text>
-                <p class="page-kicker">Source</p>
-                <strong>{{ reviewSourceLabel }}</strong>
-              </v-card-text>
-            </v-card>
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-card rounded="xl" variant="tonal">
-              <v-card-text>
-                <p class="page-kicker">Trace key</p>
-                <strong>{{ review.state.currentTrace.run }} / {{ review.state.currentTrace.eventId }} / {{ review.state.currentTrace.traceId }}</strong>
-              </v-card-text>
-            </v-card>
-          </v-col>
-          <v-col cols="12" md="3" v-if="showDetectorMetaCard">
-            <v-card rounded="xl" variant="tonal">
-              <v-card-text>
-                <p class="page-kicker">Detector meta</p>
-                <strong>{{ detectorMetaText }}</strong>
-              </v-card-text>
-            </v-card>
-          </v-col>
-          <v-col cols="12" md="3" v-if="review.state.currentTrace.reviewProgress">
-            <v-card rounded="xl" variant="tonal">
-              <v-card-text>
-                <p class="page-kicker">Review progress</p>
-                <strong>
-                  {{ review.state.currentTrace.reviewProgress.current }} / {{ review.state.currentTrace.reviewProgress.total }}
-                </strong>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
       </v-card-text>
     </v-card>
 
@@ -281,6 +256,7 @@ import { useRoute, useRouter } from "vue-router";
 import TracePlot from "../components/TracePlot.vue";
 import { useReviewStore } from "../stores/review";
 import { useShellStore } from "../stores/shell";
+import { REVIEW_PLOT_MODES_BY_DETECTOR } from "../types";
 
 const route = useRoute();
 const router = useRouter();
@@ -300,12 +276,11 @@ const familyOptions = [
   { title: "Strange", value: "strange" },
 ];
 
-const visualModeOptions = [
-  { title: "Raw", value: "raw" },
-  { title: "CDF", value: "cdf" },
-  { title: "Curvature", value: "curvature" },
-  { title: "Peak", value: "peak" },
-];
+const visualModeOptions = computed(() =>
+  REVIEW_PLOT_MODES_BY_DETECTOR[
+    review.state.source === "event_trace" ? review.state.detector : "ATTPC"
+  ],
+);
 
 const filterItemOptions = [
   { title: "None", value: "none" },
@@ -405,8 +380,6 @@ const traceRangeText = computed(() => {
 
 const detectorMeta = computed(() => review.state.currentTrace?.traceMetadata ?? null);
 
-const showDetectorMetaCard = computed(() => detectorMeta.value !== null);
-
 const detectorMetaText = computed(() => {
   const metadata = detectorMeta.value;
   if (!metadata) {
@@ -422,6 +395,58 @@ const detectorMetaText = computed(() => {
     return `Layer ${metadata.layer} Index ${metadata.index}`;
   }
   return "";
+});
+
+function formatFitValue(value) {
+  return Number(value).toFixed(3);
+}
+
+const traceInfoCards = computed(() => {
+  const trace = review.state.currentTrace;
+  if (!trace) {
+    return [];
+  }
+  const cards = [
+    { title: "Source", value: reviewSourceLabel.value },
+    {
+      title: "Trace key",
+      value: `${trace.run} / ${trace.eventId} / ${trace.traceId}`,
+    },
+  ];
+  if (detectorMetaText.value) {
+    cards.push({ title: "Detector meta", value: detectorMetaText.value });
+  }
+  if (trace.reviewProgress) {
+    cards.push({
+      title: "Review progress",
+      value: `${trace.reviewProgress.current} / ${trace.reviewProgress.total}`,
+    });
+  }
+  if (review.state.visualMode === "fit" && trace.detector === "GAGG") {
+    const fit = trace.gaggFit;
+    const fitCards = [
+      ["Free-tau recovery fit", fit],
+      ["Free-tau clipped fit", fit?.clippedFree],
+      ["Fixed-tau fit", fit?.fixedTau],
+    ];
+    for (const [title, result] of fitCards) {
+      if (!result) continue;
+      if (result.status === "ok") {
+        cards.push({
+          title,
+          value: `B ${formatFitValue(result.baseline)} · n ${formatFitValue(result.n)} · t0 ${formatFitValue(result.t0)} · tau ${formatFitValue(result.tau)}`,
+          detail: `A ${formatFitValue(result.amplitude)} · RMSE ${formatFitValue(result.rmse)} · R² ${formatFitValue(result.rSquared)}`,
+        });
+      } else {
+        cards.push({
+          title,
+          value: "Fit unavailable",
+          detail: result.reason || "No fit result is available for this trace.",
+        });
+      }
+    }
+  }
+  return cards;
 });
 
 function normalizeDetector(detector) {
@@ -441,6 +466,13 @@ function currentLabelText(label) {
   }
   return `Strange: ${label.label}`;
 }
+
+watch(
+  () => [review.state.visualMode, review.state.currentTrace],
+  () => {
+    void review.loadCurrentGaggFit();
+  },
+);
 
 async function submitReview() {
   await router.replace({ name: "browse-trace", query: review.buildQuery() });
@@ -585,7 +617,11 @@ async function onKeydown(event) {
   const key = event.key.toLowerCase();
   if (key === "f") {
     event.preventDefault();
-    review.toggleVisualMode();
+    if (event.shiftKey) {
+      review.reverseVisualMode();
+    } else {
+      review.toggleVisualMode();
+    }
     return;
   }
   if (key === "arrowup" || key === "k") {

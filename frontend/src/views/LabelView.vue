@@ -78,6 +78,7 @@
             </div>
             <div class="trace-stage-hints">
               <span>Space from Home enters label mode.</span>
+              <span>F / Shift+F cycles plot views forward / backward.</span>
               <span>Q / Esc returns Home.</span>
             </div>
           </v-card-title>
@@ -401,7 +402,11 @@ async function onKeydown(event) {
   if (labelStore.state.mode === "browse") {
     if (key === "f") {
       event.preventDefault();
-      labelStore.toggleVisualMode();
+      if (event.shiftKey) {
+        labelStore.reverseVisualMode();
+      } else {
+        labelStore.toggleVisualMode();
+      }
       return;
     }
     if (key === "arrowleft" || key === "h") {

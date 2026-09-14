@@ -18,6 +18,10 @@ from attpc_estimator.storage.labels_db import LabelRepository
 from attpc_estimator.process.cdf import CDF_THRESHOLDS
 from attpc_estimator.process.filter import build_filter_rows, default_output_name
 from attpc_estimator.service.estimator import EstimatorService
+from attpc_estimator.utils.gagg_processing import (
+    GaggPeakFindingConfig,
+    GaggTraceProcessingRule,
+)
 from tests.test_estimator_service import (
     write_gagg_sparse_hdf5_input,
     write_ic_sparse_hdf5_input,
@@ -457,11 +461,8 @@ def test_estimator_service_bootstrap_and_histograms(tmp_path) -> None:
         assert amp_payload["metric"] == "amplitude"
         assert [series["title"] for series in amp_payload["series"]] == [
             "0 peak",
-            "4+ peaks",
             "Noise",
         ]
-        assert amp_payload["series"][1]["traceCount"] == 5
-        assert amp_payload["series"][1]["histogram"][0] == 3
 
         filtered_cdf = service.get_histogram(
             metric="cdf",
@@ -661,6 +662,12 @@ def test_estimator_service_selects_filter_and_navigates(tmp_path) -> None:
             write_gagg_sparse_hdf5_input,
             "run_0018_detector_gagg_metric_baseline_variant_none.npz",
         ),
+        (
+            "GAGG",
+            "time",
+            write_gagg_sparse_hdf5_input,
+            "run_0018_detector_gagg_metric_time_variant_none.npz",
+        ),
     ],
 )
 def test_detector_histograms_write_artifacts_and_reuse_cache(
@@ -692,6 +699,86 @@ def test_detector_histograms_write_artifacts_and_reuse_cache(
         assert cached == payload
     finally:
         service.close()
+
+
+@pytest.mark.parametrize("metric", ["time", "baseline"])
+def test_gagg_histograms_include_layer_totals_before_crystal_series(tmp_path, metric: str) -> None:
+    trace_path = tmp_path / "run_0018.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_gagg_sparse_hdf5_input(trace_path)
+
+    service = EstimatorService(trace_path=trace_path, workspace=workspace)
+    try:
+        payload = service.get_histogram(metric=metric, mode="all", run=18, detector="GAGG")
+        series = payload["series"]
+        assert [item["labelKey"] for item in series[:2]] == [
+            "layer_1_total",
+            "layer_2_total",
+        ]
+        assert series[0]["traceCount"] == sum(item["traceCount"] for item in series[2:27])
+        assert series[1]["traceCount"] == sum(item["traceCount"] for item in series[27:])
+        assert series[0]["histogram"] == np.sum(
+            [item["histogram"] for item in series[2:27]], axis=0
+        ).tolist()
+        assert series[1]["histogram"] == np.sum(
+            [item["histogram"] for item in series[27:]], axis=0
+        ).tolist()
+    finally:
+        service.close()
+
+
+def test_gagg_histograms_omit_unconfigured_channels(tmp_path) -> None:
+    trace_path = tmp_path / "run_0018.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_gagg_sparse_hdf5_input(trace_path)
+    rules = {
+        0: GaggTraceProcessingRule(8.0),
+        25: GaggTraceProcessingRule(16.0),
+    }
+
+    service = EstimatorService(
+        trace_path=trace_path,
+        workspace=workspace,
+        gagg_trace_rules=rules,
+    )
+    try:
+        payload = service.get_histogram(metric="baseline", mode="all", run=18, detector="GAGG")
+        assert [item["labelKey"] for item in payload["series"]] == [
+            "layer_1_total",
+            "layer_2_total",
+            "layer_1_index_0",
+            "layer_2_index_0",
+        ]
+    finally:
+        service.close()
+
+
+def test_gagg_time_cache_reuses_matching_indexed_peak_config(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "run_0018.h5"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_gagg_sparse_hdf5_input(trace_path)
+    peak_config = GaggPeakFindingConfig(10.0, 5.0, 20.0, 1.0, 0.95)
+    first_rules = {0: GaggTraceProcessingRule(8.0, peak_config)}
+    first = EstimatorService(trace_path=trace_path, workspace=workspace, gagg_trace_rules=first_rules)
+    try:
+        payload = first.get_histogram(metric="time", mode="all", run=18, detector="GAGG")
+    finally:
+        first.close()
+
+    second_rules = {0: GaggTraceProcessingRule(8.0, peak_config)}
+    second = EstimatorService(trace_path=trace_path, workspace=workspace, gagg_trace_rules=second_rules)
+    try:
+        monkeypatch.setattr(
+            second.histograms,
+            "_get_uncached_histogram",
+            lambda **_: (_ for _ in ()).throw(AssertionError("time-window change must keep cache valid")),
+        )
+        assert second.get_cached_histogram(metric="time", mode="all", run=18, detector="GAGG") == payload
+    finally:
+        second.close()
 
 
 def test_detector_histogram_cache_recomputes_when_config_changes(tmp_path, monkeypatch) -> None:

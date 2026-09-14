@@ -1,5 +1,31 @@
 export type DetectorName = "ATTPC" | "IC" | "SI" | "GAGG";
 
+export const REVIEW_PLOT_MODES_BY_DETECTOR = {
+  ATTPC: [
+    { title: "Raw", value: "raw" },
+    { title: "CDF", value: "cdf" },
+    { title: "Curvature", value: "curvature" },
+    { title: "Peak", value: "peak" },
+  ],
+  IC: [
+    { title: "Raw", value: "raw" },
+    { title: "Peak", value: "peak" },
+  ],
+  SI: [
+    { title: "Raw", value: "raw" },
+    { title: "Peak", value: "peak" },
+  ],
+  GAGG: [
+    { title: "Raw", value: "raw" },
+    { title: "Derivative", value: "derivative" },
+    { title: "Peak", value: "peak" },
+    { title: "Fit", value: "fit" },
+  ],
+} as const satisfies Record<DetectorName, readonly { title: string; value: string }[]>;
+
+export type ReviewVisualMode =
+  (typeof REVIEW_PLOT_MODES_BY_DETECTOR)[DetectorName][number]["value"];
+
 export interface SessionPayload {
   mode: "label" | "label_review" | "review" | "pointcloud_label" | "pointcloud_label_review" | "pointcloud";
   run: number | null;
@@ -37,7 +63,7 @@ export interface ReviewUiState {
   traceId: number | null;
   filterItem: "none" | "max";
   filterValue: number | null;
-  visualMode: "raw" | "cdf" | "curvature" | "peak";
+  visualMode: ReviewVisualMode;
 }
 
 export interface HistogramsUiState {
@@ -53,10 +79,13 @@ export interface HistogramsUiState {
     | "saturation"
     | "line_distance"
     | "line_property"
-    | "coplanar";
+    | "coplanar"
+    | "fit"
+    | "trace";
   selectedMode: "all" | "labeled" | "filtered";
   selectedBitflipVariant: "baseline" | "value" | "length" | "count";
   selectedSaturationVariant: "drop" | "length";
+  selectedGaggTraceSaturation: "all" | "yes" | "no";
   selectedHistogramFilter: string;
   selectedHistogramVeto: boolean;
   cdfScaleMode: "linear" | "log";
@@ -170,6 +199,36 @@ export interface TracePayload {
   eventContext?: EventContext | null;
   traceMetadata?: TraceMetadata | null;
   peakAnalysis?: PeakAnalysis | null;
+  gaggFit?: GaggFit | null;
+}
+
+export interface GaggFit {
+  status: "ok" | "unavailable";
+  fitted: number[] | null;
+  amplitude: number | null;
+  n: number | null;
+  t0: number | null;
+  tau: number | null;
+  baseline: number | null;
+  rmse: number | null;
+  rSquared: number | null;
+  reason: string | null;
+  clippedFree?: GaggFit | null;
+  fixedTau?: GaggFit | null;
+}
+
+export interface GaggFitResultsPayload {
+  available: boolean;
+  message?: string;
+  runs?: number[];
+  indexes?: number[];
+  count?: number;
+  n?: number[];
+  tau?: number[];
+  A?: number[];
+  peakAmplitude?: number[];
+  t0?: number[];
+  peakTime?: number[];
 }
 
 export interface PeakAnalysis {
@@ -199,14 +258,19 @@ export type HistogramMetric =
   | "saturation"
   | "line_distance"
   | "line_property"
-  | "coplanar";
+  | "coplanar"
+  | "fit"
+  | "trace";
 export type HistogramMode = "all" | "labeled" | "filtered";
 export type HistogramVariant =
   | "baseline"
   | "value"
   | "drop"
   | "length"
-  | "count";
+  | "count"
+  | "all"
+  | "yes"
+  | "no";
 
 export interface BootstrapPayload {
   appType: "merged";

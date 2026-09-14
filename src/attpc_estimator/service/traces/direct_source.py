@@ -24,6 +24,7 @@ from ...utils.trace_data import (
     si_trace_id_from_selector,
     si_trace_selector,
 )
+from ...utils.gagg_processing import GaggTraceProcessingRule
 
 EVENT_PREFETCH_RADIUS = 2
 
@@ -40,6 +41,7 @@ class DirectTraceSource:
         detector: str = DETECTOR_ATTPC,
         filter_item: str = "none",
         filter_value: float | None = None,
+        gagg_trace_rules: dict[int, GaggTraceProcessingRule] | None = None,
     ) -> None:
         self.trace_file = trace_file.resolve()
         self.run = int(run)
@@ -48,6 +50,7 @@ class DirectTraceSource:
         self.detector = normalize_detector(detector)
         self.filter_item = self._normalize_filter_item(filter_item)
         self.filter_value = None if filter_value is None else float(filter_value)
+        self.gagg_trace_rules = gagg_trace_rules
         self._labels = dict(labels or {})
         self._reader = open_storage_trace_reader(
             run=self.run,
@@ -207,6 +210,19 @@ class DirectTraceSource:
             raise LookupError("no direct trace is selected")
         return record
 
+    def current_and_next_records(self, count: int) -> list[TraceRecord]:
+        if count <= 0 or self._current_event_id is None or self._current_trace_id is None:
+            return []
+        trace_ids = self._matching_trace_ids(self._current_event_id)
+        try:
+            start = trace_ids.index(self._current_trace_id)
+        except ValueError:
+            return []
+        return [
+            self._record_for(self._current_event_id, trace_id)
+            for trace_id in trace_ids[start : start + count]
+        ]
+
     def snapshot_state(self) -> dict[str, int | None]:
         return {
             "eventId": self._current_event_id,
@@ -271,7 +287,7 @@ class DirectTraceSource:
             run=self.run,
             event_id=event_id,
             trace_id=trace_id,
-            baseline_window_scale=self.baseline_window_scale,
+            baseline_window_scale=self._baseline_window_scale_for(trace_id),
             detector=self.detector,
         )
         stored_label = self._labels.get(ref)
@@ -355,14 +371,16 @@ class DirectTraceSource:
         if trace_count <= 0:
             self._filtered_trace_cache[event_id] = []
             return []
+        trace_ids = list(range(trace_count))
+        if self.detector == DETECTOR_GAGG and self.gagg_trace_rules is not None:
+            trace_ids = [trace_id for trace_id in trace_ids if trace_id in self.gagg_trace_rules]
         if self.filter_item == "none":
-            trace_ids = list(range(trace_count))
             self._filtered_trace_cache[event_id] = trace_ids
             return trace_ids
         threshold = float(self.filter_value or 0.0)
         trace_ids = [
             trace_id
-            for trace_id in range(trace_count)
+            for trace_id in trace_ids
             if self._trace_max_value(event_id, trace_id) > threshold
         ]
         self._filtered_trace_cache[event_id] = trace_ids
@@ -371,6 +389,14 @@ class DirectTraceSource:
     def _trace_max_value(self, event_id: int, trace_id: int) -> float:
         record = self._record_for(event_id, 0 if self.detector == DETECTOR_IC else trace_id)
         return float(np.max(record.trace)) if record.trace.size else 0.0
+
+    def _baseline_window_scale_for(self, trace_id: int) -> float:
+        if self.detector == DETECTOR_GAGG and self.gagg_trace_rules is not None:
+            rule = self.gagg_trace_rules.get(int(trace_id))
+            if rule is None:
+                raise LookupError(f"GAGG trace {self.run}/{trace_id} is not configured")
+            return rule.baseline_window_scale
+        return self.baseline_window_scale
 
     def _resolve_filtered_trace_id(
         self,

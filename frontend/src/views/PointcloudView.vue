@@ -134,7 +134,7 @@
         </div>
         <div class="trace-stage-hints">
           <span>{{ sourceSummary }}</span>
-          <span>Press F to switch layout, J/K or arrows to navigate.</span>
+          <span>Press F / Shift+F to switch layout, J/K or arrows to navigate.</span>
         </div>
       </v-card-title>
 
@@ -245,7 +245,11 @@ function onKeydown(event) {
   const key = event.key.toLowerCase();
   if (key === "f") {
     event.preventDefault();
-    store.toggleLayoutMode();
+    if (event.shiftKey) {
+      store.reverseLayoutMode();
+    } else {
+      store.toggleLayoutMode();
+    }
     return;
   }
   if (key === "j" || key === "arrowdown" || key === "arrowright") {

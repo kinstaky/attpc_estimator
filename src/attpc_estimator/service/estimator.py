@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 import h5py
 import numpy as np
+import polars as pl
 
 from ..model.label import NORMAL_BUCKETS, StoredLabel
 from ..model.trace import TraceRef
@@ -21,6 +22,9 @@ from ..storage.run_paths import (
     webui_state_path,
 )
 from ..storage.webui_state import WebUiStateStore
+from ..process.gagg_batch_fit import gagg_fit_parquet_paths
+from ..process.gagg_parameters import GaggFitParameters
+from ..process.gagg_fit import GammaPulseFit
 from ..utils.trace_data import (
     DETECTOR_ATTPC,
     DETECTOR_GAGG,
@@ -29,7 +33,9 @@ from ..utils.trace_data import (
     describe_trace_events,
     normalize_detector,
 )
+from ..utils.gagg_processing import GaggTraceProcessingRule, require_gagg_peak_config
 from .histograms import HistogramService
+from .gagg_fit_cache import GaggFitCache
 from .labeling import (
     RESERVED_SHORTCUTS,
     labels_snapshot,
@@ -60,6 +66,7 @@ PEAK_CONFIG_KEYS = (
     "peak_threshold",
     "peak_rel_height",
 )
+GAGG_FIT_PREFETCH_COUNT = 4
 
 
 @dataclass(slots=True)
@@ -169,6 +176,9 @@ class EstimatorService:
         peak_threshold: float = 0.0,
         peak_rel_height: float = 0.95,
         detector_peak_configs: dict[str, dict[str, float]] | None = None,
+        gagg_trace_rules: dict[int, GaggTraceProcessingRule] | None = None,
+        gagg_fit_parameters: GaggFitParameters | None = None,
+        gagg_valid_indexes: tuple[int, ...] | None = None,
         bitflip_baseline_threshold: float = BITFLIP_BASELINE_DEFAULT,
         saturation_threshold: float = 2000.0,
         saturation_drop_threshold: float = 10.0,
@@ -207,6 +217,9 @@ class EstimatorService:
             peak_rel_height=peak_rel_height,
             detector_peak_configs=detector_peak_configs,
         )
+        self.gagg_trace_rules = gagg_trace_rules
+        self.gagg_fit_parameters = gagg_fit_parameters
+        self.gagg_valid_indexes = gagg_valid_indexes
         self.bitflip_baseline_threshold = bitflip_baseline_threshold
         self.ransac_config = ransac_config
         self.merge_config = merge_config
@@ -226,6 +239,11 @@ class EstimatorService:
             peak_rel_height=peak_rel_height,
             detector_baseline_window_scales=self.detector_baseline_window_scales,
             detector_peak_configs=self.detector_peak_configs,
+            gagg_trace_rules=self.gagg_trace_rules,
+            gagg_fit_parameters=self.gagg_fit_parameters,
+            gagg_valid_indexes=self.gagg_valid_indexes,
+            ransac_config=self.ransac_config,
+            merge_config=self.merge_config,
             bitflip_baseline_threshold=bitflip_baseline_threshold,
             saturation_threshold=saturation_threshold,
             saturation_drop_threshold=saturation_drop_threshold,
@@ -242,6 +260,10 @@ class EstimatorService:
         )
         self.pointcloud.validate_processing_configs()
         self.ui_state_store = WebUiStateStore(webui_state_path(workspace))
+        self.gagg_fit_cache = GaggFitCache(
+            parameters=gagg_fit_parameters,
+            gagg_trace_rules=gagg_trace_rules,
+        )
         resolved_default_run = self._resolve_initial_run(default_run)
         self.session = SessionState(mode="label", run=resolved_default_run)
         self.ui_state = default_ui_state()
@@ -256,6 +278,7 @@ class EstimatorService:
         self._restore_saved_state()
 
     def close(self) -> None:
+        self.gagg_fit_cache.close()
         for source in self._sources.values():
             source.close()
         self._sources.clear()
@@ -581,6 +604,63 @@ class EstimatorService:
             self._current_source().current_trace_or_raise()
         )
 
+    def current_gagg_fit(self) -> dict[str, Any]:
+        source = self._current_source()
+        record = source.current_trace_or_raise()
+        if record.detector != DETECTOR_GAGG:
+            raise ValueError("gamma fitting is only available for GAGG traces")
+        fits = self.gagg_fit_cache.get_or_compute(record)
+        if isinstance(source, DirectTraceSource):
+            self.gagg_fit_cache.prefetch(
+                source.current_and_next_records(GAGG_FIT_PREFETCH_COUNT)[1:]
+            )
+        payload = self._serialize_gagg_fit(fits.recovery)
+        payload["clippedFree"] = self._serialize_gagg_fit(fits.clipped_free) if fits.clipped_free else None
+        payload["fixedTau"] = self._serialize_gagg_fit(fits.fixed_tau) if fits.fixed_tau else None
+        return payload
+
+    @staticmethod
+    def _serialize_gagg_fit(fit: GammaPulseFit) -> dict[str, Any]:
+        return {
+            "status": fit.status,
+            "fitted": fit.fitted.tolist() if fit.fitted is not None else None,
+            "amplitude": fit.amplitude,
+            "n": fit.n,
+            "t0": fit.t0,
+            "tau": fit.tau,
+            "baseline": fit.baseline,
+            "rmse": fit.rmse,
+            "rSquared": fit.r_squared,
+            "reason": fit.reason,
+        }
+
+    def gagg_fit_results(
+        self, *, start_run: int | None = None, end_run: int | None = None, gagg_index: int | None = None
+    ) -> dict[str, Any]:
+        paths = gagg_fit_parquet_paths(self.workspace)
+        if not paths:
+            return {"available": False, "message": "Run gagg-fit manually to create workspace/trace/gagg_fit_<run>.parquet files."}
+        source = pl.read_parquet(paths)
+        frame = source
+        if start_run is not None:
+            frame = frame.filter(pl.col("run") >= int(start_run))
+        if end_run is not None:
+            frame = frame.filter(pl.col("run") <= int(end_run))
+        if gagg_index is not None:
+            frame = frame.filter(pl.col("index") == int(gagg_index))
+        return {
+            "available": True,
+            "runs": sorted(int(value) for value in source.get_column("run").unique()),
+            "indexes": sorted(int(value) for value in source.get_column("index").unique()),
+            "count": frame.height,
+            "n": frame.get_column("n").to_list(),
+            "tau": frame.get_column("tau").to_list(),
+            "A": frame.get_column("A").to_list(),
+            "peakAmplitude": frame.get_column("amplitude").to_list(),
+            "t0": frame.get_column("t0").to_list(),
+            "peakTime": frame.get_column("time").to_list(),
+        }
+
     def next_trace(self) -> dict[str, Any]:
         return self._serialize_source_trace(self._current_source().next_trace())
 
@@ -714,6 +794,27 @@ class EstimatorService:
         veto: bool = False,
     ) -> dict[str, Any]:
         return self.histograms.get_histogram(
+            metric=metric,
+            mode=mode,
+            run=run,
+            detector=detector,
+            variant=variant,
+            filter_file=filter_file,
+            veto=veto,
+        )
+
+    def get_cached_histogram(
+        self,
+        *,
+        metric: str,
+        mode: str,
+        run: int,
+        detector: str | None = None,
+        variant: str | None = None,
+        filter_file: str | None = None,
+        veto: bool = False,
+    ) -> dict[str, Any]:
+        return self.histograms.get_cached_histogram(
             metric=metric,
             mode=mode,
             run=run,
@@ -858,7 +959,7 @@ class EstimatorService:
         event_id_range = (
             source.event_id_range() if isinstance(source, DirectTraceSource) else None
         )
-        peak_config = self._peak_config_for(record.detector)
+        peak_config = self._peak_config_for(record.detector, trace_id=record.trace_id)
         return serialize_trace_payload(
             record,
             bitflip_baseline_threshold=self.bitflip_baseline_threshold,
@@ -1017,6 +1118,7 @@ class EstimatorService:
                 labels=labels,
                 baseline_window_scale=self._baseline_window_scale_for(detector),
                 detector=detector,
+                gagg_trace_rules=self.gagg_trace_rules,
                 filter_item=filter_item,
                 filter_value=filter_value,
             )
@@ -1079,8 +1181,16 @@ class EstimatorService:
             ]
         )
 
-    def _peak_config_for(self, detector: str | None) -> dict[str, float]:
-        return self.detector_peak_configs[normalize_detector(detector)]
+    def _peak_config_for(
+        self, detector: str | None, *, trace_id: int | None = None
+    ) -> dict[str, float]:
+        resolved = normalize_detector(detector)
+        if resolved == DETECTOR_GAGG and self.gagg_trace_rules is not None and trace_id is not None:
+            rule = self.gagg_trace_rules.get(int(trace_id))
+            if rule is None:
+                raise LookupError(f"GAGG trace index {trace_id} is not configured")
+            return require_gagg_peak_config(rule, index=int(trace_id)).as_dict()
+        return self.detector_peak_configs[resolved]
 
     def _restore_saved_state(self) -> None:
         payload = self.ui_state_store.load()

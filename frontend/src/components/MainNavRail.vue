@@ -22,7 +22,16 @@
 
     <v-list class="main-nav-list" density="comfortable" nav>
       <template v-for="item in items" :key="item.title">
-        <div v-if="item.children" class="main-nav-group">
+        <v-menu v-if="item.popup" location="end" open-on-hover>
+          <template #activator="{ props }">
+            <v-list-item v-bind="props" class="main-nav-item" rounded="xl">
+              <template #prepend><v-icon :icon="item.icon" /></template>
+              <v-list-item-title class="main-nav-item-title" :class="{ 'main-nav-item-title--visible': !isRail }">{{ item.title }}</v-list-item-title>
+            </v-list-item>
+          </template>
+          <v-list density="compact" nav><v-list-item v-for="child in item.children" :key="child.to" :to="child.to" :prepend-icon="child.icon" :title="child.title" /></v-list>
+        </v-menu>
+        <div v-else-if="item.children" class="main-nav-group">
           <v-list-item
             class="main-nav-item main-nav-item--static"
             rounded="xl"

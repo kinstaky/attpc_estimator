@@ -103,7 +103,7 @@ def serialize_trace_metadata(record: TraceRecord) -> dict[str, Any] | None:
     if record.detector == "GAGG":
         return {
             "kind": "gagg",
-            "layer": max(0, int(hardware[0]) - 1),
+            "layer": int(hardware[0]),
             "index": int(hardware[1]),
         }
     return None
