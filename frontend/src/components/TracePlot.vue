@@ -23,6 +23,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { loadPlotly } from "../lib/plotly";
+import { plotTheme } from "../lib/plot_theme";
 
 const props = defineProps({
   trace: { type: Object, default: null },
@@ -104,23 +105,25 @@ function sampleIndices(values) {
 }
 
 function sampleAxis(sampleCount, rangeOverride = null) {
+  const theme = plotTheme();
   return {
     title: "Sample",
     range: rangeOverride ?? [0, Math.max(0, sampleCount - 1)],
     autorange: false,
     zeroline: false,
-    gridcolor: "#e7dfcf",
+    gridcolor: theme.grid,
   };
 }
 
 function baseLayout() {
+  const theme = plotTheme();
   return {
     margin: { t: 48, r: 24, b: 48, l: 56 },
-    paper_bgcolor: "#fffdf8",
-    plot_bgcolor: "#fffdf8",
+    paper_bgcolor: theme.surface,
+    plot_bgcolor: theme.surface,
     font: {
       family: "ui-sans-serif, system-ui, sans-serif",
-      color: "#222",
+      color: theme.text,
     },
   };
 }
@@ -518,46 +521,6 @@ async function renderFirstDerivativePlot(root) {
   );
 }
 
-async function renderGaggRawDerivativePlot(root) {
-  if (!root || !props.trace) {
-    return;
-  }
-  const Plotly = await loadPlotly();
-  const trace = displayTrace.value;
-  const derivative = trace.raw.map((value, index) => (
-    index === 0 ? 0 : value - trace.raw[index - 1]
-  ));
-
-  Plotly.react(
-    root,
-    [
-      {
-        type: "scatter",
-        mode: "lines",
-        x: sampleIndices(derivative),
-        y: derivative,
-        line: {
-          color: "#3b5ba9",
-          width: 1.8,
-        },
-        name: "Raw first derivative",
-      },
-    ],
-    {
-      ...baseLayout(),
-      title: { text: "Raw First Derivative", x: 0.02, xanchor: "left" },
-      xaxis: sampleAxis(derivative.length),
-      yaxis: {
-        title: "Raw first derivative",
-        zeroline: false,
-        gridcolor: "#e7dfcf",
-      },
-      showlegend: false,
-    },
-    defaultConfig(),
-  );
-}
-
 async function renderSecondDerivativePlot(root) {
   if (!root || !props.trace) {
     return;
@@ -705,22 +668,6 @@ async function renderPlots() {
     if (hasFitComparisons.value && tertiaryRoot.value && quaternaryRoot.value) {
       await renderGammaFitPlot(tertiaryRoot.value, displayTrace.value.gaggFit.clippedFree, "Free-tau unmasked fit");
       await renderGammaFitPlot(quaternaryRoot.value, displayTrace.value.gaggFit.fixedTau, "Fixed-tau masked fit");
-    }
-    return;
-  }
-
-  if (props.visualMode === "derivative") {
-    curvatureRange = null;
-    await renderRawPlot(primaryRoot.value);
-    clearRelayoutSyncHandlers();
-    if (tertiaryRoot.value) {
-      Plotly.purge(tertiaryRoot.value);
-    }
-    if (quaternaryRoot.value) {
-      Plotly.purge(quaternaryRoot.value);
-    }
-    if (secondaryRoot.value) {
-      await renderGaggRawDerivativePlot(secondaryRoot.value);
     }
     return;
   }

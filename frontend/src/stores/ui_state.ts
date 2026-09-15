@@ -10,6 +10,7 @@ import { usePointcloudLabelStore } from "./pointcloud_label";
 import { usePointcloudStore } from "./pointcloud";
 import { useReviewStore } from "./review";
 import { useShellStore } from "./shell";
+import { useAppearanceStore } from "./appearance";
 
 let persistenceTimer: ReturnType<typeof window.setTimeout> | null = null;
 let persistenceStarted = false;
@@ -30,12 +31,14 @@ export async function hydrateUiState(payload: UiStatePayload | null | undefined)
   const mapping = useMappingStore();
   const pointcloud = usePointcloudStore();
   const pointcloudLabel = usePointcloudLabelStore();
+  const appearance = useAppearanceStore();
 
   if (!payload) {
     return;
   }
 
   shell.setSelectedRun(payload.shell.selectedRun);
+  appearance.applyUiState(payload.appearance);
   label.applyUiState(payload.label);
   review.applyUiState(payload.review);
   histograms.applyUiState(payload.histograms);
@@ -64,12 +67,14 @@ export function snapshotUiState(): UiStatePayload {
   const mapping = useMappingStore();
   const pointcloud = usePointcloudStore();
   const pointcloudLabel = usePointcloudLabelStore();
+  const appearance = useAppearanceStore();
 
   return {
     route: router.currentRoute.value.fullPath,
     shell: {
       selectedRun: shell.state.selectedRun,
     },
+    appearance: { ...appearance.state },
     label: label.serializeUiState(),
     review: review.serializeUiState(),
     histograms: histograms.serializeUiState(),

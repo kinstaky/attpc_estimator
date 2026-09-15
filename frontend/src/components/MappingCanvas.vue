@@ -26,6 +26,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Application, Container, Graphics, Point, Rectangle } from "pixi.js";
 
+import { plotTheme } from "../lib/plot_theme";
+
 import type { MappingChannel, MappingLayer, MappingPad, MappingRenderRule, MappingStrip, MappingViewMode } from "../types";
 
 const props = defineProps<{
@@ -164,7 +166,7 @@ function eventClipPosition(event: MouseEvent | WheelEvent): { x: number; y: numb
 async function mountPixi(): Promise<void> {
   if (!root.value || app) return;
   app = new Application();
-  await app.init({ background: "#fffdf8", resizeTo: root.value, antialias: true });
+  await app.init({ background: plotTheme().surface, resizeTo: root.value, antialias: true });
   root.value.appendChild(app.canvas);
   container = new Container(); app.stage.addChild(container); container.position.set(app.screen.width / 2, app.screen.height / 2);
   updateContainerScale(); rebuildChannels();

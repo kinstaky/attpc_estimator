@@ -1,5 +1,5 @@
 <template>
-  <v-app>
+  <v-app :style="vuetifyThemeVars">
     <section v-if="state.loading" class="app-loading-state">
       <p class="page-kicker">Application</p>
       <h1>Loading app state…</h1>
@@ -22,7 +22,7 @@
       <v-main class="app-main">
         <router-view v-slot="{ Component }">
           <keep-alive>
-            <component :is="Component" />
+            <component :is="Component" :key="$route.fullPath + plotAppearanceKey" />
           </keep-alive>
         </router-view>
       </v-main>
@@ -33,6 +33,7 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import MainNavRail from "./components/MainNavRail.vue";
+import { useAppearanceStore } from "./stores/appearance";
 import { useShellStore } from "./stores/shell";
 import {
   hydrateUiState,
@@ -41,6 +42,7 @@ import {
 } from "./stores/ui_state";
 
 const { state, init } = useShellStore();
+const { applyToDocument, plotAppearanceKey, vuetifyThemeVars } = useAppearanceStore();
 
 onMounted(() => {
   void (async () => {
@@ -49,6 +51,7 @@ onMounted(() => {
     if (state.bootstrap?.uiState) {
       await hydrateUiState(state.bootstrap.uiState);
     }
+    applyToDocument();
     startUiStatePersistence();
   })();
 });

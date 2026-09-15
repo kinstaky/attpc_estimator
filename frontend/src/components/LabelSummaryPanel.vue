@@ -29,6 +29,7 @@
         v-for="item in items"
         :key="item.key"
         class="summary-panel-card"
+        :class="{ 'summary-panel-card--deletable': allowDelete }"
         rounded="xl"
         variant="tonal"
       >
@@ -42,7 +43,7 @@
             <strong>{{ item.title }}</strong>
             <span>{{ Number(item.count || 0) }} labeled</span>
           </div>
-          <v-icon icon="mdi-chevron-right" size="18" />
+          <v-icon class="summary-panel-chevron" icon="mdi-chevron-right" size="18" />
         </button>
 
         <v-btn

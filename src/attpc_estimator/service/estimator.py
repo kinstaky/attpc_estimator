@@ -107,6 +107,7 @@ def default_ui_state() -> dict[str, Any]:
     return {
         "route": "/",
         "shell": {"selectedRun": None},
+        "appearance": {"mode": "light", "accent": "cobalt"},
         "label": {"visualMode": "raw"},
         "review": {
             "source": "label_set",
@@ -1474,6 +1475,16 @@ class EstimatorService:
             if isinstance(selected_run, int) and selected_run in run_values:
                 state["shell"]["selectedRun"] = selected_run
 
+        appearance_payload = payload.get("appearance")
+        if isinstance(appearance_payload, dict):
+            if appearance_payload.get("mode") in {"light", "dark"}:
+                state["appearance"]["mode"] = appearance_payload["mode"]
+            if appearance_payload.get("accent") in {
+                "cobalt", "azure", "teal", "jade", "amber", "orange", "crimson",
+                "raspberry", "violet", "indigo",
+            }:
+                state["appearance"]["accent"] = appearance_payload["accent"]
+
         label_payload = payload.get("label")
         if isinstance(label_payload, dict):
             visual_mode = label_payload.get("visualMode")
@@ -1681,6 +1692,7 @@ class EstimatorService:
             "/browse/pointcloud",
             "/mapping",
             "/histograms",
+            "/settings",
         }
 
     def _serialize_pointcloud_event(self, run: int, event_id: int) -> dict[str, Any]:

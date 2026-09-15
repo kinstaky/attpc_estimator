@@ -17,7 +17,6 @@ export const REVIEW_PLOT_MODES_BY_DETECTOR = {
   ],
   GAGG: [
     { title: "Raw", value: "raw" },
-    { title: "Derivative", value: "derivative" },
     { title: "Peak", value: "peak" },
     { title: "Fit", value: "fit" },
   ],
@@ -115,6 +114,21 @@ export interface PointcloudLabelUiState {
   visualMode: "basic" | "detail";
 }
 
+export interface AppearanceUiState {
+  mode: "light" | "dark";
+  accent:
+    | "cobalt"
+    | "azure"
+    | "teal"
+    | "jade"
+    | "amber"
+    | "orange"
+    | "crimson"
+    | "raspberry"
+    | "violet"
+    | "indigo";
+}
+
 export interface UiStatePayload {
   route: string;
   shell: ShellUiState;
@@ -122,6 +136,7 @@ export interface UiStatePayload {
   review: ReviewUiState;
   histograms: HistogramsUiState;
   mapping: MappingUiState;
+  appearance?: AppearanceUiState;
   pointcloud?: PointcloudUiState;
   pointcloudLabel?: PointcloudLabelUiState;
 }

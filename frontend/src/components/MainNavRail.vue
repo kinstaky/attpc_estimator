@@ -132,6 +132,7 @@ const items = computed(() => {
     },
     { to: "/mapping", title: "Mapping", icon: "mdi-grid" },
     { to: "/histograms", title: "Histograms", icon: "mdi-chart-histogram" },
+    { to: "/settings", title: "Settings", icon: "mdi-cog-outline" },
   ];
 });
 

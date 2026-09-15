@@ -46,6 +46,11 @@ const routes: RouteRecordRaw[] = [
     name: "histograms",
     component: () => import("./views/HistogramView.vue"),
   },
+  {
+    path: "/settings",
+    name: "settings",
+    component: () => import("./views/SettingsView.vue"),
+  },
 ];
 
 const router = createRouter({

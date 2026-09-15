@@ -25,6 +25,7 @@
 import { onBeforeUnmount, onMounted, watch } from "vue";
 
 import { loadPlotly } from "../lib/plotly";
+import { plotTheme } from "../lib/plot_theme";
 import type { HistogramPlot } from "../types";
 
 const props = defineProps<{
@@ -43,13 +44,14 @@ function setPlotRoot(key: string, element: unknown): void {
 }
 
 function baseLayout() {
+  const theme = plotTheme();
   return {
     margin: { t: 48, r: 24, b: 56, l: 68 },
-    paper_bgcolor: "#fffdf8",
-    plot_bgcolor: "#fffdf8",
+    paper_bgcolor: theme.surface,
+    plot_bgcolor: theme.surface,
     font: {
       family: "ui-sans-serif, system-ui, sans-serif",
-      color: "#222",
+      color: theme.text,
     },
   };
 }
