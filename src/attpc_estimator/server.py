@@ -67,6 +67,7 @@ class PointcloudLabelAssignRequest(BaseModel):
 class UiStateRequest(BaseModel):
     route: str | None = None
     shell: dict | None = None
+    appearance: dict | None = None
     label: dict | None = None
     review: dict | None = None
     histograms: dict | None = None
