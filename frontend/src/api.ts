@@ -18,6 +18,8 @@ import type {
   DetectorName,
   GaggFit,
   GaggFitResultsPayload,
+  ChainEventPayload,
+  ChainMatchPidBackgroundPayload,
 } from "./types";
 
 interface ErrorBody {
@@ -178,6 +180,26 @@ export function setPointcloudBrowseSession(
     eventId,
     label,
   });
+}
+
+export function setChainSession(run: number, eventId: number): Promise<SessionResponse & { event: ChainEventPayload }> {
+  return setSession({ mode: "chain", run, source: "event_trace", eventId }) as Promise<SessionResponse & { event: ChainEventPayload }>;
+}
+
+export function getCurrentChainEvent(): Promise<ChainEventPayload> {
+  return request<ChainEventPayload>("/api/chain/current");
+}
+
+export function nextChainEvent(): Promise<ChainEventPayload> {
+  return request<ChainEventPayload>("/api/chain/next", { method: "POST" });
+}
+
+export function previousChainEvent(): Promise<ChainEventPayload> {
+  return request<ChainEventPayload>("/api/chain/previous", { method: "POST" });
+}
+
+export function getChainMatchPidBackground(): Promise<ChainMatchPidBackgroundPayload> {
+  return request<ChainMatchPidBackgroundPayload>("/api/chain/match-pid-background");
 }
 
 export function setLabelReviewSession(

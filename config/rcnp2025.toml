@@ -1,7 +1,80 @@
 trace_path = "/data/rcnp2025/hdf5"
-port = 8766
-run = 1056
 workspace = "/data/rcnp2025/attpc_estimator"
+run = 1056
+
+[webui]
+port = 8766
+brill_config_path = "/home/pupu/code/brill/brill_core/config/rcnp2025.toml"
+
+[webui.browse.chain.match]
+pid_run = 1042
+pid_end_run = 1127
+
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "14B"
+max = 250.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "13B"
+max = 250.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "12Be"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "11Be"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "10Be"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "9Be"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "9Li"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "8Li"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "7Li"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "6Li"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "8He"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "6He"
+max = 350.0
+step = 0.1
+
+[[webui.browse.chain.match.theory_lines]]
+particle = "4He"
+max = 350.0
+step = 0.1
 
 [run_tags]
 path = "runs.xlsx"

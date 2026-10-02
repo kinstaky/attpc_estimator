@@ -19,3 +19,4 @@
 - Runtime paths and per-detector processing rules come from the selected TOML config (for example `config/rcnp2025.toml`); do not hard-code workspace paths.
 - GAGG raw rows include an over-range flag in column 0. Trace samples begin at column 1; preserve this distinction when adding readers or fits.
 - GAGG fit constants (`p0`, `p1`, `tau`, clipping thresholds) are in `config/gagg_fit_parameters.toml`. Keep batch/pipeline behavior separate from Browse-only visual fitting experiments.
+- Persist all WebUI page/tab state in `webui_session.json`. When adding a page or tab, add its UI-state schema, defaults, validation, hydration, and snapshot persistence.

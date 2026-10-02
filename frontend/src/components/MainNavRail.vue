@@ -128,6 +128,7 @@ const items = computed(() => {
       children: [
         { to: "/browse/trace", title: "Trace", icon: "mdi-waveform" },
         { to: "/browse/pointcloud", title: "Pointcloud", icon: "mdi-vector-polyline" },
+        { to: "/browse/chain", title: "Chain", icon: "mdi-transit-connection-variant" },
       ],
     },
     { to: "/mapping", title: "Mapping", icon: "mdi-grid" },

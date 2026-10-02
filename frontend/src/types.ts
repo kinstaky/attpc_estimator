@@ -26,7 +26,7 @@ export type ReviewVisualMode =
   (typeof REVIEW_PLOT_MODES_BY_DETECTOR)[DetectorName][number]["value"];
 
 export interface SessionPayload {
-  mode: "label" | "label_review" | "review" | "pointcloud_label" | "pointcloud_label_review" | "pointcloud";
+  mode: "label" | "label_review" | "review" | "pointcloud_label" | "pointcloud_label_review" | "pointcloud" | "chain";
   run: number | null;
   detector?: DetectorName | null;
   source?: "label_set" | "filter_file" | "event_trace" | "event_id" | null;
@@ -41,6 +41,69 @@ export interface SessionPayload {
   gaggIndex?: number | null;
   filterItem?: "none" | "max" | null;
   filterValue?: number | null;
+}
+
+export interface ChainTrace {
+  detector: "silicon" | "gagg";
+  side: string;
+  index: number;
+  raw: number[];
+  fit: { status: string; fitted: number[] | null; reason: string | null } | null;
+}
+
+export interface ChainStageTable {
+  columns: string[];
+  rows: Record<string, string | number | null>[];
+}
+
+export interface ChainMatchTable {
+  rows: Record<string, string | number | null>[];
+}
+
+export interface ChainMatchStage {
+  tables: {
+    d1: ChainMatchTable;
+    d2: ChainMatchTable;
+    gagg: ChainMatchTable;
+  };
+  calibrated: {
+    d1: Array<number | null>;
+    d2: Array<number | null>;
+    gagg: Array<number | null>;
+  };
+}
+
+export interface ChainPidHistogram {
+  x: number[];
+  y: number[];
+  z: number[][];
+}
+
+export interface ChainPidCurve {
+  x: number[];
+  y: number[];
+}
+
+export interface ChainPidTheoryLine {
+  particle: string;
+  d1d2: ChainPidCurve;
+  d2gagg: ChainPidCurve;
+}
+
+export interface ChainMatchPidBackgroundPayload {
+  d1d2: ChainPidHistogram;
+  d2gagg: ChainPidHistogram;
+  theoryLines: ChainPidTheoryLine[];
+}
+
+export interface ChainEventPayload {
+  run: number;
+  eventId: number;
+  stages: {
+    raw: { traces: ChainTrace[] };
+    ingot: ChainStageTable;
+    match: ChainMatchStage;
+  };
 }
 
 export interface ShellUiState {
@@ -114,6 +177,16 @@ export interface PointcloudLabelUiState {
   visualMode: "basic" | "detail";
 }
 
+export interface ChainUiState {
+  selectedRun: number | null;
+  selectedEventId: number | null;
+  stage: "raw" | "ingot" | "match";
+  showTheoryLines: boolean;
+  selectedD1Index: number | null;
+  selectedD2Index: number | null;
+  selectedGaggIndex: number | null;
+}
+
 export interface AppearanceUiState {
   mode: "light" | "dark";
   accent:
@@ -139,6 +212,7 @@ export interface UiStatePayload {
   appearance?: AppearanceUiState;
   pointcloud?: PointcloudUiState;
   pointcloudLabel?: PointcloudLabelUiState;
+  chain?: ChainUiState;
 }
 
 export interface EventIdRange {

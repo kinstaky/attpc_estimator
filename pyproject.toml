@@ -19,10 +19,12 @@ dependencies = [
   "numpy>=2.4.3",
   "openpyxl>=3.1,<4.0",
   "polars>=1.39.3",
+  "pycatima>=1.981",
   "scikit-learn>=1.8.0",
   "scipy>=1.17.1",
   "tqdm>=4.67,<5.0",
   "uproot>=5.7.4",
+  "py_brill_rcnp2025",
   "uvicorn[standard]>=0.30,<1.0",
 ]
 
@@ -49,6 +51,7 @@ pythonpath = ["src"]
 attpc-storage = { path = "../attpc_storage", editable = true }
 attpc-pointcloud = { path = "../attpc_pointcloud", editable = true }
 attpc-runs = { path = "../attpc_runs", editable = true }
+py_brill_rcnp2025 = { path = "../../brill/py_brill_rcnp2025", editable = true }
 
 [dependency-groups]
 dev = [

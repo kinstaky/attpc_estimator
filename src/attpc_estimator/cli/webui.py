@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import inspect
 import logging
+import math
+import re
 import socket
 import sys
 from pathlib import Path
@@ -41,7 +43,13 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
     gagg_trace_rules = build_gagg_trace_rules(
         baseline_entries=args.gagg_baseline_entries
-        or [{"fft_window_scale": args.gagg_baseline_window_scale}],
+        or [{
+            "fft_window_scale": (
+                args.gagg_baseline_window_scale
+                if args.gagg_baseline_window_scale is not None
+                else args.baseline_window_scale
+            )
+        }],
         amplitude_entries=args.gagg_amplitude_entries
         or [{
             "peak_separation": args.gagg_peak_separation,
@@ -122,6 +130,10 @@ def main() -> None:
         "pointcloud_micromegas_time_bucket": args.pointcloud_micromegas_time_bucket,
         "pointcloud_window_time_bucket": args.pointcloud_window_time_bucket,
         "pointcloud_detector_length": args.pointcloud_detector_length,
+        "chain_brill_config_path": args.chain_brill_config_path,
+        "chain_pid_run": args.chain_pid_run,
+        "chain_pid_end_run": args.chain_pid_end_run,
+        "chain_theory_lines": args.chain_theory_lines,
         "ransac_config": RansacConfig(
             residual_threshold=float(args.residual_threshold),
             max_trials=int(args.max_trials),
@@ -167,6 +179,21 @@ def _parse_args() -> argparse.Namespace:
     config = root_config_values(
         payload,
         allowed_keys={"trace_path", "workspace", "port", "run"},
+    )
+    webui_config = table_config_values(
+        payload,
+        table="webui",
+        allowed_keys={"port", "brill_config_path"},
+    )
+    chain_match_config = table_config_values(
+        payload,
+        table="webui.browse.chain.match",
+        allowed_keys={"pid_run", "pid_end_run"},
+    )
+    chain_theory_entries = table_config_entries(
+        payload,
+        table="webui.browse.chain.match.theory_lines",
+        allowed_keys={"particle", "max", "step"},
     )
     baseline_config = table_config_values(
         payload,
@@ -313,7 +340,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--port",
         type=int,
-        **argument_config_kwargs(config, "port"),
+        **argument_config_kwargs(
+            webui_config if "port" in webui_config else config, "port"
+        ),
         help="Preferred local HTTP port",
     )
     parser.add_argument(
@@ -569,6 +598,33 @@ def _parse_args() -> argparse.Namespace:
         if isinstance(fit_parameters_path, str)
         else None
     )
+    brill_config_path = webui_config.get("brill_config_path")
+    chain_configured = bool(chain_match_config or chain_theory_entries)
+    if not isinstance(brill_config_path, str) or not brill_config_path.strip():
+        if chain_configured:
+            raise ValueError(
+                "webui.brill_config_path must name the Brill TOML configuration"
+            )
+        args.chain_brill_config_path = None
+        args.chain_pid_run = None
+        args.chain_pid_end_run = None
+        args.chain_theory_lines = ()
+    else:
+        args.chain_brill_config_path = config_relative_path(config_path, brill_config_path)
+        if not args.chain_brill_config_path.is_file():
+            raise ValueError(f"Brill config not found: {args.chain_brill_config_path}")
+        try:
+            args.chain_pid_run = int(chain_match_config["pid_run"])
+            args.chain_pid_end_run = int(chain_match_config["pid_end_run"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "webui.browse.chain.match.pid_run and pid_end_run must be integers"
+            ) from exc
+        if args.chain_pid_end_run < args.chain_pid_run:
+            raise ValueError(
+                "webui.browse.chain.match.pid_end_run must not precede pid_run"
+            )
+        args.chain_theory_lines = _parse_chain_theory_lines(chain_theory_entries)
     if gagg_indexes_config:
         try:
             lower, upper = int(gagg_indexes_config["min"]), int(gagg_indexes_config["max"])
@@ -579,6 +635,42 @@ def _parse_args() -> argparse.Namespace:
     else:
         args.gagg_valid_indexes = tuple(range(41))
     return args
+
+
+def _parse_chain_theory_lines(
+    entries: list[dict[str, object]],
+) -> tuple[dict[str, float | str], ...]:
+    """Validate the configured total-energy CATIMA curves."""
+    lines: list[dict[str, float | str]] = []
+    for index, entry in enumerate(entries, start=1):
+        particle = entry.get("particle")
+        if not isinstance(particle, str) or not re.fullmatch(
+            r"[1-9][0-9]*[A-Z][a-z]?", particle
+        ):
+            raise ValueError(
+                "webui.browse.chain.match.theory_lines"
+                f"[{index}].particle must be an isotope such as '12Be'"
+            )
+        try:
+            maximum = float(entry["max"])
+            step = float(entry.get("step", 0.1))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "webui.browse.chain.match.theory_lines"
+                f"[{index}] requires numeric max and optional step"
+            ) from exc
+        if not math.isfinite(maximum) or maximum <= 0.0:
+            raise ValueError(
+                "webui.browse.chain.match.theory_lines"
+                f"[{index}].max must be a positive finite total energy"
+            )
+        if not math.isfinite(step) or step <= 0.0:
+            raise ValueError(
+                "webui.browse.chain.match.theory_lines"
+                f"[{index}].step must be a positive finite energy interval"
+            )
+        lines.append({"particle": particle, "max": maximum, "step": step})
+    return tuple(lines)
 
 
 def _configure_logging(*, verbose: bool) -> None:

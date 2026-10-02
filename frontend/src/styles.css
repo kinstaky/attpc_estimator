@@ -553,6 +553,313 @@ body {
   min-height: 20rem;
 }
 
+.chain-trace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.chain-trace-panel {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(25, 53, 83, 0.16);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--v-theme-surface) 92%, #dbe7f4);
+}
+
+.chain-stage-toggle {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--signal) 32%, var(--surface-muted));
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--surface) 92%, var(--signal-soft));
+}
+
+.chain-stage-toggle .v-btn {
+  min-width: 5.25rem;
+  color: var(--ink) !important;
+  font-size: 0.86rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  opacity: 1 !important;
+}
+
+.chain-stage-toggle .v-btn.v-btn--active {
+  background: var(--signal) !important;
+  color: #fff !important;
+}
+
+.chain-trace-panel .page-kicker {
+  margin-bottom: 4px;
+}
+
+.chain-trace-plot {
+  min-height: 250px;
+}
+
+.chain-table-shell {
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--signal) 18%, var(--surface-muted));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--surface) 94%, var(--signal-soft));
+}
+
+.chain-table-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 38rem;
+  padding: 0.8rem 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--signal) 16%, var(--surface-muted));
+  color: var(--muted-ink);
+  font-size: 0.8rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chain-table-label strong {
+  display: inline-grid;
+  min-width: 1.9rem;
+  min-height: 1.5rem;
+  place-items: center;
+  border-radius: 99px;
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.chain-table {
+  min-width: 38rem;
+  background: transparent !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.chain-table th {
+  height: 3rem !important;
+  padding: 0.75rem 1.1rem !important;
+  color: var(--muted-ink) !important;
+  font-size: 0.76rem !important;
+  font-weight: 780 !important;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.chain-table td {
+  height: 3.2rem !important;
+  padding: 0.7rem 1.1rem !important;
+  border-bottom-color: color-mix(in srgb, var(--signal) 10%, var(--surface-muted)) !important;
+  color: var(--ink) !important;
+  font-size: 0.98rem !important;
+  font-weight: 560;
+}
+
+.chain-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--signal) 8%, transparent) !important;
+}
+
+.chain-match-stage {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.chain-match-tables,
+.chain-pid-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.chain-match-table-shell,
+.chain-pid-plot-shell {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--signal) 18%, var(--surface-muted));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--surface) 94%, var(--signal-soft));
+}
+
+.chain-match-table-shell > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.76rem 0.95rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--signal) 16%, var(--surface-muted));
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.chain-match-table-shell > header strong {
+  display: grid;
+  min-width: 1.65rem;
+  min-height: 1.4rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.chain-match-table-shell > header span {
+  color: var(--chain-detector-color, var(--signal));
+}
+
+.chain-match-table {
+  min-width: 0;
+}
+
+.chain-match-table th,
+.chain-match-table td {
+  padding-inline: 0.72rem !important;
+  white-space: nowrap;
+}
+
+.chain-match-table tbody tr {
+  cursor: pointer;
+  outline: none;
+}
+
+.chain-match-table tbody tr:focus-visible td {
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+.chain-match-table tbody tr.chain-match-row--selected td {
+  background: color-mix(in srgb, var(--signal) 16%, var(--surface)) !important;
+  color: var(--ink) !important;
+  font-weight: 760;
+}
+
+.chain-match-table-shell--d1 { --chain-detector-color: #2563eb; border-top: 3px solid #2563eb; }
+.chain-match-table-shell--d2 { --chain-detector-color: #7c3aed; border-top: 3px solid #7c3aed; }
+.chain-match-table-shell--gagg { --chain-detector-color: #b45309; border-top: 3px solid #b45309; }
+
+.chain-match-empty,
+.chain-pid-empty,
+.chain-pid-loading {
+  margin: 0;
+  padding: 1rem;
+  color: var(--muted-ink);
+  font-size: 0.9rem;
+}
+
+.chain-pid-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chain-pid-section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.chain-theory-toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--signal) 16%, var(--surface-muted));
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--surface) 95%, var(--signal-soft));
+}
+
+.chain-theory-toggle {
+  flex: 0 0 auto;
+}
+
+.chain-theory-legend {
+  display: flex;
+  flex: 1 1 18rem;
+  flex-wrap: wrap;
+  gap: 0.42rem 0.85rem;
+  min-width: 0;
+  padding: 0.22rem 0;
+}
+
+.chain-theory-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.chain-theory-legend-item i {
+  display: block;
+  width: 1.25rem;
+  height: 0.18rem;
+  border-radius: 999px;
+}
+
+.chain-pid-plot {
+  min-height: 50rem;
+}
+
+.chain-pid-empty {
+  padding-top: 0;
+}
+
+.chain-table__number {
+  text-align: right !important;
+}
+
+.chain-detector-tag {
+  display: inline-flex;
+  min-width: 3.2rem;
+  justify-content: center;
+  padding: 0.24rem 0.5rem;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--signal) 12%, var(--surface));
+  color: var(--signal);
+  font-size: 0.78rem;
+  font-weight: 780;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.chain-detector-tag--d1 {
+  background: color-mix(in srgb, #2563eb 16%, var(--surface));
+  color: #2563eb;
+}
+
+.chain-detector-tag--d2 {
+  background: color-mix(in srgb, #7c3aed 16%, var(--surface));
+  color: #7c3aed;
+}
+
+.chain-detector-tag--gagg {
+  background: color-mix(in srgb, #b45309 16%, var(--surface));
+  color: #b45309;
+}
+
+.chain-side-tag {
+  display: inline-flex;
+  min-width: 3.6rem;
+  justify-content: center;
+  padding: 0.24rem 0.5rem;
+  border-radius: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chain-side-tag--front {
+  background: color-mix(in srgb, #047857 15%, var(--surface));
+  color: #047857;
+}
+
+.chain-side-tag--back {
+  background: color-mix(in srgb, #be123c 14%, var(--surface));
+  color: #be123c;
+}
+
+@media (max-width: 900px) {
+  .chain-trace-grid { grid-template-columns: 1fr; }
+  .chain-match-tables,
+  .chain-pid-grid { grid-template-columns: 1fr; }
+  .chain-theory-toolbar { flex-direction: column; }
+}
+
 .result-plot {
   min-height: 24rem;
 }
@@ -1249,12 +1556,26 @@ html[data-appearance-mode="dark"] {
   --plot-surface: #202329;
   --plot-grid: #424955;
   --plot-ink: #f2f4f7;
+  --plot-raw: #64b5f6;
+  --plot-fit: #ff8a80;
+  --plot-peak: #fbbf24;
+  --plot-peak-start: #5eead4;
+  --plot-peak-end: #c4b5fd;
+  --plot-derivative: #93c5fd;
+  --plot-found: #6ee7b7;
 }
 
 html:not([data-appearance-mode="dark"]) {
   --plot-surface: #ffffff;
   --plot-grid: #d9dde3;
   --plot-ink: #17191d;
+  --plot-raw: #0b63ce;
+  --plot-fit: #c62828;
+  --plot-peak: #b45309;
+  --plot-peak-start: #00796b;
+  --plot-peak-end: #6d28d9;
+  --plot-derivative: #2563eb;
+  --plot-found: #047857;
 }
 
 html[data-appearance-mode="dark"] .main-nav-rail,
@@ -1447,6 +1768,42 @@ html[data-appearance-mode="dark"] .mapping-toggle .v-btn.v-btn--active {
   border-color: var(--signal) !important;
   color: #ffffff !important;
 }
+
+html[data-appearance-mode="dark"] .chain-stage-toggle {
+  background: #13161a;
+  border-color: #3d4450;
+}
+
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn,
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn .v-btn__content {
+  color: #f2f4f7 !important;
+  -webkit-text-fill-color: #f2f4f7;
+  opacity: 1 !important;
+}
+
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn:not(.v-btn--active),
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn:not(.v-btn--active) .v-btn__content {
+  background: #2a3039 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+  opacity: 1 !important;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+}
+
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn:not(.v-btn--active) + .v-btn:not(.v-btn--active) {
+  border-left: 1px solid #4b5563;
+}
+
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn.v-btn--active,
+html[data-appearance-mode="dark"] .chain-stage-toggle .v-btn.v-btn--active .v-btn__content {
+  color: #ffffff !important;
+}
+
+html[data-appearance-mode="dark"] .chain-detector-tag--d1 { color: #93c5fd; }
+html[data-appearance-mode="dark"] .chain-detector-tag--d2 { color: #c4b5fd; }
+html[data-appearance-mode="dark"] .chain-detector-tag--gagg { color: #fbbf24; }
+html[data-appearance-mode="dark"] .chain-side-tag--front { color: #6ee7b7; }
+html[data-appearance-mode="dark"] .chain-side-tag--back { color: #fda4af; }
 
 html[data-appearance-mode="dark"] .mapping-sidebar-card .result-card-title h2,
 html[data-appearance-mode="dark"] .mapping-stage-card .result-card-title h2,

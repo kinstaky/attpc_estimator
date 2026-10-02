@@ -11,6 +11,7 @@ import { usePointcloudStore } from "./pointcloud";
 import { useReviewStore } from "./review";
 import { useShellStore } from "./shell";
 import { useAppearanceStore } from "./appearance";
+import { useChainStore } from "./chain";
 
 let persistenceTimer: ReturnType<typeof window.setTimeout> | null = null;
 let persistenceStarted = false;
@@ -32,6 +33,7 @@ export async function hydrateUiState(payload: UiStatePayload | null | undefined)
   const pointcloud = usePointcloudStore();
   const pointcloudLabel = usePointcloudLabelStore();
   const appearance = useAppearanceStore();
+  const chain = useChainStore();
 
   if (!payload) {
     return;
@@ -45,6 +47,7 @@ export async function hydrateUiState(payload: UiStatePayload | null | undefined)
   mapping.applyUiState(payload.mapping);
   pointcloud.applyUiState(payload.pointcloud);
   pointcloudLabel.applyUiState(payload.pointcloudLabel);
+  chain.applyUiState(payload.chain);
 
   const normalizedRoute = payload.route?.startsWith("/review")
     ? payload.route.replace("/review", "/browse/trace")
@@ -68,6 +71,7 @@ export function snapshotUiState(): UiStatePayload {
   const pointcloud = usePointcloudStore();
   const pointcloudLabel = usePointcloudLabelStore();
   const appearance = useAppearanceStore();
+  const chain = useChainStore();
 
   return {
     route: router.currentRoute.value.fullPath,
@@ -81,6 +85,7 @@ export function snapshotUiState(): UiStatePayload {
     mapping: mapping.serializeUiState(),
     pointcloud: pointcloud.serializeUiState(),
     pointcloudLabel: pointcloudLabel.serializeUiState(),
+    chain: chain.serializeUiState(),
   };
 }
 

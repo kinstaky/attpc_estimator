@@ -36,6 +36,7 @@ from ..utils.trace_data import (
 from ..utils.gagg_processing import GaggTraceProcessingRule, require_gagg_peak_config
 from .histograms import HistogramService
 from .gagg_fit_cache import GaggFitCache
+from .chain import ChainService
 from .labeling import (
     RESERVED_SHORTCUTS,
     labels_snapshot,
@@ -57,6 +58,7 @@ SessionMode = Literal[
     "pointcloud_label",
     "pointcloud_label_review",
     "pointcloud",
+    "chain",
 ]
 logger = logging.getLogger("attpc_estimator.estimator")
 PEAK_CONFIG_KEYS = (
@@ -160,6 +162,15 @@ def default_ui_state() -> dict[str, Any]:
         "pointcloudLabel": {
             "visualMode": "basic",
         },
+        "chain": {
+            "selectedRun": None,
+            "selectedEventId": None,
+            "stage": "raw",
+            "showTheoryLines": True,
+            "selectedD1Index": None,
+            "selectedD2Index": None,
+            "selectedGaggIndex": None,
+        },
     }
 
 
@@ -188,6 +199,10 @@ class EstimatorService:
         pointcloud_micromegas_time_bucket: float | None = None,
         pointcloud_window_time_bucket: float | None = None,
         pointcloud_detector_length: float | None = None,
+        chain_brill_config_path: Path | None = None,
+        chain_pid_run: int | None = None,
+        chain_pid_end_run: int | None = None,
+        chain_theory_lines: tuple[dict[str, float | str], ...] = (),
         ransac_config: RansacConfig = RansacConfig(),
         merge_config: MergeConfig = MergeConfig(),
         verbose: bool = False,
@@ -265,6 +280,17 @@ class EstimatorService:
             parameters=gagg_fit_parameters,
             gagg_trace_rules=gagg_trace_rules,
         )
+        self.chain = ChainService(
+            trace_path=self.trace_path,
+            workspace=self.workspace,
+            silicon_baseline_window_scale=self.detector_baseline_window_scales[DETECTOR_SI],
+            gagg_baseline_window_scale=self.detector_baseline_window_scales[DETECTOR_GAGG],
+            gagg_fit_cache=self.gagg_fit_cache,
+            brill_config_path=chain_brill_config_path,
+            pid_run=chain_pid_run,
+            pid_end_run=chain_pid_end_run,
+            theory_lines=chain_theory_lines,
+        )
         resolved_default_run = self._resolve_initial_run(default_run)
         self.session = SessionState(mode="label", run=resolved_default_run)
         self.ui_state = default_ui_state()
@@ -279,6 +305,7 @@ class EstimatorService:
         self._restore_saved_state()
 
     def close(self) -> None:
+        self.chain.close()
         self.gagg_fit_cache.close()
         for source in self._sources.values():
             source.close()
@@ -402,6 +429,20 @@ class EstimatorService:
                 "session": self.session.as_payload(),
                 "event": self._serialize_pointcloud_event(ref.run, ref.event_id),
             }
+
+        if mode == "chain":
+            resolved_run = self._resolve_run(run)
+            if event_id is None:
+                raise ValueError("eventId is required for chain review")
+            event = self.chain.load(run=resolved_run, event_id=int(event_id))
+            self._active_source_key = None
+            self._active_pointcloud_label_key = None
+            self._active_pointcloud_key = None
+            self.session = SessionState(
+                mode="chain", run=resolved_run, detector=DETECTOR_ATTPC,
+                source="event_trace", event_id=int(event_id),
+            )
+            return {"session": self.session.as_payload(), "event": event}
 
         if mode == "label":
             if resolved_detector != DETECTOR_ATTPC:
@@ -604,6 +645,22 @@ class EstimatorService:
         return self._serialize_source_trace(
             self._current_source().current_trace_or_raise()
         )
+
+    def current_chain_event(self) -> dict[str, Any]:
+        return self.chain.current()
+
+    def next_chain_event(self) -> dict[str, Any]:
+        event = self.chain.next()
+        self.session.event_id = int(event["eventId"])
+        return event
+
+    def previous_chain_event(self) -> dict[str, Any]:
+        event = self.chain.previous()
+        self.session.event_id = int(event["eventId"])
+        return event
+
+    def chain_match_pid_background(self) -> dict[str, Any]:
+        return self.chain.match_pid_background()
 
     def current_gagg_fit(self) -> dict[str, Any]:
         source = self._current_source()
@@ -1649,6 +1706,25 @@ class EstimatorService:
             if visual_mode in {"basic", "detail"}:
                 state["pointcloudLabel"]["visualMode"] = visual_mode
 
+        chain_payload = payload.get("chain")
+        if isinstance(chain_payload, dict):
+            selected_run = chain_payload.get("selectedRun")
+            if isinstance(selected_run, int) and selected_run in run_values:
+                state["chain"]["selectedRun"] = selected_run
+            selected_event_id = chain_payload.get("selectedEventId")
+            if isinstance(selected_event_id, int):
+                state["chain"]["selectedEventId"] = selected_event_id
+            stage = chain_payload.get("stage")
+            if stage in {"raw", "ingot", "match"}:
+                state["chain"]["stage"] = stage
+            show_theory_lines = chain_payload.get("showTheoryLines")
+            if isinstance(show_theory_lines, bool):
+                state["chain"]["showTheoryLines"] = show_theory_lines
+            for key in ("selectedD1Index", "selectedD2Index", "selectedGaggIndex"):
+                value = chain_payload.get(key)
+                if value is None or isinstance(value, int) and value >= 0:
+                    state["chain"][key] = value
+
         if state["shell"]["selectedRun"] is None and runs:
             state["shell"]["selectedRun"] = runs[0]
         if state["histograms"]["selectedRun"] is None:
@@ -1690,6 +1766,7 @@ class EstimatorService:
             "/browse",
             "/browse/trace",
             "/browse/pointcloud",
+            "/browse/chain",
             "/mapping",
             "/histograms",
             "/settings",

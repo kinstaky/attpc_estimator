@@ -23,6 +23,9 @@ from ...utils.trace_data import (
     si_side_counts,
     si_trace_id_from_selector,
     si_trace_selector,
+    trace_record_from_gagg_row,
+    trace_record_from_pad_row,
+    trace_record_from_silicon_row,
 )
 from ...utils.gagg_processing import GaggTraceProcessingRule
 
@@ -63,6 +66,7 @@ class DirectTraceSource:
         self._event_count_cache: dict[int, int] = {}
         self._event_rows_cache: dict[int, np.ndarray] = {}
         self._filtered_trace_cache: dict[int, list[int]] = {}
+        self._record_cache: dict[TraceRef, TraceRecord] = {}
         self._current_event_id: int | None = None
         self._current_trace_id: int | None = None
         layout = getattr(self._reader, "layout", None)
@@ -81,6 +85,7 @@ class DirectTraceSource:
         self._event_rows_cache.clear()
         self._event_count_cache.clear()
         self._filtered_trace_cache.clear()
+        self._record_cache.clear()
         self._reader.close()
 
     def get_progress(self) -> None:
@@ -282,14 +287,33 @@ class DirectTraceSource:
 
     def _record_for(self, event_id: int, trace_id: int) -> TraceRecord:
         ref = TraceRef(run=self.run, event_id=event_id, trace_id=trace_id)
-        record = load_reader_trace_record(
-            self._reader,
-            run=self.run,
-            event_id=event_id,
-            trace_id=trace_id,
-            baseline_window_scale=self._baseline_window_scale_for(trace_id),
-            detector=self.detector,
-        )
+        record = self._record_cache.get(ref)
+        if record is None:
+            if self.detector == DETECTOR_IC:
+                record = load_reader_trace_record(
+                    self._reader, run=self.run, event_id=event_id, trace_id=trace_id,
+                    baseline_window_scale=self._baseline_window_scale_for(trace_id),
+                    detector=self.detector,
+                )
+            else:
+                rows = self._get_event_rows(event_id)
+                if trace_id < 0 or trace_id >= int(rows.shape[0]):
+                    raise LookupError(f"trace {self.run}/{event_id}/{trace_id} is not available")
+                row = rows[trace_id]
+                kwargs = {
+                    "run": self.run,
+                    "event_id": event_id,
+                    "trace_id": trace_id,
+                    "row": row,
+                    "baseline_window_scale": self._baseline_window_scale_for(trace_id),
+                }
+                if self.detector == DETECTOR_SI:
+                    record = trace_record_from_silicon_row(**kwargs)
+                elif self.detector == DETECTOR_GAGG:
+                    record = trace_record_from_gagg_row(**kwargs)
+                else:
+                    record = trace_record_from_pad_row(**kwargs)
+            self._record_cache[ref] = record
         stored_label = self._labels.get(ref)
         if stored_label is None:
             record.family = None
@@ -319,6 +343,11 @@ class DirectTraceSource:
             event_id: trace_ids
             for event_id, trace_ids in self._filtered_trace_cache.items()
             if event_id in desired
+        }
+        self._record_cache = {
+            ref: record
+            for ref, record in self._record_cache.items()
+            if ref.event_id in desired
         }
 
     def _neighbor_events(self, start_event_id: int, *, step: int, limit: int) -> list[int]:

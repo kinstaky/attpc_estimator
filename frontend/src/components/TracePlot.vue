@@ -150,7 +150,7 @@ async function renderRawPlot(root) {
         x: sampleIndices(trace.raw),
         y: trace.raw,
         line: {
-          color: "#174f40",
+          color: plotTheme().raw,
           width: 2,
         },
         name: "Raw trace",
@@ -163,7 +163,7 @@ async function renderRawPlot(root) {
       yaxis: {
         title: "Amplitude",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
       showlegend: false,
     },
@@ -187,7 +187,7 @@ async function renderTimeDomainPlot(root) {
         x: sampleIndices(trace.raw),
         y: trace.raw,
         line: {
-          color: "#b46b2f",
+          color: plotTheme().raw,
           width: 1.8,
         },
         name: "Raw trace",
@@ -198,7 +198,7 @@ async function renderTimeDomainPlot(root) {
         x: sampleIndices(trace.trace),
         y: trace.trace,
         line: {
-          color: "#174f40",
+          color: plotTheme().derivative,
           width: 2.2,
         },
         name: "Baseline removed",
@@ -220,7 +220,7 @@ async function renderTimeDomainPlot(root) {
       yaxis: {
         title: "Amplitude",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
     },
     defaultConfig(),
@@ -242,7 +242,7 @@ async function renderFrequencyPlot(root) {
         x: sampleIndices(trace.transformed),
         y: trace.transformed,
         line: {
-          color: "#3b5ba9",
+          color: plotTheme().derivative,
           width: 2,
         },
         fill: "tozeroy",
@@ -256,12 +256,12 @@ async function renderFrequencyPlot(root) {
       xaxis: {
         title: "Frequency bin",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
       yaxis: {
         title: "Magnitude",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
       showlegend: false,
     },
@@ -288,7 +288,7 @@ async function renderPeakPlot(root) {
       x: sampleIndices(trace.trace),
       y: trace.trace,
       line: {
-        color: "#174f40",
+        color: plotTheme().raw,
         width: 2.2,
       },
       name: "Baseline removed",
@@ -301,7 +301,7 @@ async function renderPeakPlot(root) {
       x: analysis.peakIndices,
       y: analysis.peakIndices.map((index) => trace.trace[index]),
       marker: {
-        color: "#a84a24",
+        color: plotTheme().peak,
         size: 9,
       },
       name: "Peaks",
@@ -312,7 +312,7 @@ async function renderPeakPlot(root) {
       x: analysis.leftIndices,
       y: analysis.leftIndices.map((index) => trace.trace[index]),
       marker: {
-        color: "#3b5ba9",
+        color: plotTheme().peakStart,
         size: 8,
         symbol: "diamond",
       },
@@ -324,7 +324,7 @@ async function renderPeakPlot(root) {
       x: analysis.rightIndices,
       y: analysis.rightIndices.map((index) => trace.trace[index]),
       marker: {
-        color: "#6a4c93",
+        color: plotTheme().peakEnd,
         size: 8,
         symbol: "diamond-open",
       },
@@ -351,7 +351,7 @@ async function renderPeakPlot(root) {
       yaxis: {
         title: "Amplitude",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
     },
     defaultConfig(),
@@ -371,7 +371,7 @@ async function renderGammaFitPlot(root, fit, title) {
       x: sampleIndices(trace.raw),
       y: trace.raw,
       line: {
-        color: "#174f40",
+        color: plotTheme().raw,
         width: 2.2,
       },
       name: "Raw trace",
@@ -384,7 +384,7 @@ async function renderGammaFitPlot(root, fit, title) {
       x: sampleIndices(fit.fitted),
       y: fit.fitted,
       line: {
-        color: "#a84a24",
+        color: plotTheme().fit,
         width: 2.4,
       },
       name: "Gamma fit",
@@ -410,7 +410,7 @@ async function renderGammaFitPlot(root, fit, title) {
       yaxis: {
         title: "Amplitude",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
       annotations: fit?.status === "unavailable"
         ? [{
@@ -420,7 +420,7 @@ async function renderGammaFitPlot(root, fit, title) {
             y: 0.92,
             xref: "paper",
             yref: "paper",
-            font: { color: "#a84a24" },
+            font: { color: plotTheme().fit },
           }]
         : [],
     },
@@ -500,7 +500,7 @@ async function renderFirstDerivativePlot(root) {
         x: analysis.xIndices,
         y: analysis.firstDerivative,
         line: {
-          color: "#3b5ba9",
+          color: plotTheme().derivative,
           width: 1.8,
         },
         name: "First derivative",
@@ -513,7 +513,7 @@ async function renderFirstDerivativePlot(root) {
       yaxis: {
         title: "First derivative",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
       showlegend: false,
     },
@@ -559,7 +559,7 @@ async function renderSecondDerivativePlot(root) {
       x: analysis.xIndices,
       y: analysis.secondDerivative,
       line: {
-        color: "#a84a24",
+        color: plotTheme().fit,
         width: 2,
       },
       name: "Second derivative",
@@ -572,7 +572,7 @@ async function renderSecondDerivativePlot(root) {
       x: structureWaveformXs,
       y: structureWaveformYs,
       line: {
-        color: "#1a7f5a",
+        color: plotTheme().found,
         width: 3,
       },
       name: "Found bitflip",
@@ -583,7 +583,7 @@ async function renderSecondDerivativePlot(root) {
       x: structureMarkerXs,
       y: structureMarkerYs,
       marker: {
-        color: "#1a7f5a",
+        color: plotTheme().found,
         size: 8,
       },
       name: "Bitflip boundaries",
@@ -606,7 +606,7 @@ async function renderSecondDerivativePlot(root) {
       yaxis: {
         title: "Second derivative",
         zeroline: false,
-        gridcolor: "#e7dfcf",
+        gridcolor: plotTheme().grid,
       },
     },
     defaultConfig(),

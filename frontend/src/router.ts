@@ -37,6 +37,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import("./views/PointcloudView.vue"),
   },
   {
+    path: "/browse/chain",
+    name: "browse-chain",
+    component: () => import("./views/ChainView.vue"),
+  },
+  {
     path: "/mapping",
     name: "mapping",
     component: () => import("./views/MappingView.vue"),

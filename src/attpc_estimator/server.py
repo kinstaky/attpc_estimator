@@ -74,6 +74,7 @@ class UiStateRequest(BaseModel):
     mapping: dict | None = None
     pointcloud: dict | None = None
     pointcloudLabel: dict | None = None
+    chain: dict | None = None
 
 
 def create_app(
@@ -154,6 +155,34 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
             return service.current_trace()
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/chain/current")
+    def current_chain_event() -> dict:
+        try:
+            return service.current_chain_event()
+        except (ValueError, LookupError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/chain/next")
+    def next_chain_event() -> dict:
+        try:
+            return service.next_chain_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/chain/previous")
+    def previous_chain_event() -> dict:
+        try:
+            return service.previous_chain_event()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/chain/match-pid-background")
+    def chain_match_pid_background() -> dict:
+        try:
+            return service.chain_match_pid_background()
+        except (ValueError, LookupError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/traces/current/gagg-fit")
     def current_gagg_fit() -> dict:
