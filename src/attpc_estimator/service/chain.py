@@ -29,11 +29,19 @@ from ..utils.trace_data import (
 from .gagg_fit_cache import GaggFitCache
 
 CHAIN_EVENT_PREFETCH_RADIUS = 5
+CHAIN_AVAILABLE_PREFETCH_RADIUS = 5
 THEORY_CACHE_VERSION = 1
 THEORY_DEFAULT_STEP_MEV = 0.1
 SILICON_DENSITY_G_CM3 = 2.329
 THEORY_STOP_EPSILON_MEV = 1e-8
 ChainEventKey = tuple[int, int]
+ChainStage = str
+STRIP_GUESS_TYPE_NAMES = {
+    1: "charge-shared",
+    2: "broken-adjacent",
+    4: "short",
+    8: "piecewise",
+}
 
 # CATIMA only needs Z and A. Keep this local rather than adding a periodic-table
 # dependency solely to turn configured isotope labels into projectiles.
@@ -177,12 +185,16 @@ class ChainService:
         self.pid_end_run = pid_end_run
         self.theory_lines = tuple(dict(line) for line in theory_lines)
         self._current: tuple[int, int] | None = None
+        self._ingot_viewers: dict[int, Any] = {}
         self._match_viewers: dict[int, Any] = {}
+        self._availability_indexes: dict[tuple[int, ChainStage], np.ndarray] = {}
+        self._availability_lock = threading.Lock()
         self._pid_background: dict[str, Any] | None = None
         self._pid_background_lock = threading.Lock()
-        # T0MatchViewer owns native ROOT state, so only its calibration calls
-        # are serialized. Full event construction remains concurrent with the
-        # background prefetch worker.
+        # Native Brill viewers own mutable ROOT state. Their calls are
+        # serialized while complete Chain payload construction remains
+        # concurrent with the background prefetch worker.
+        self._ingot_viewer_lock = threading.RLock()
         self._match_viewer_lock = threading.RLock()
         self._event_prefetcher = _ChainEventPrefetcher(self._load_prefetched_event)
 
@@ -202,7 +214,9 @@ class ChainService:
 
     def close(self) -> None:
         self._event_prefetcher.close()
+        self._ingot_viewers.clear()
         self._match_viewers.clear()
+        self._availability_indexes.clear()
 
     def _event_window(self, run: int, event_id: int) -> list[ChainEventKey]:
         keys = [(run, event_id)]
@@ -219,16 +233,14 @@ class ChainService:
     def _load_event_payload(self, run: int, event_id: int) -> dict[str, Any]:
         """Build every Chain stage once so stage changes are cache-only reads."""
         ingot = self._ingot_rows(run, event_id)
+        ingot_stage = self._ingot_stage(run, event_id, ingot)
         match = self._match_stage(run, event_id, ingot)
         return {
             "run": run,
             "eventId": event_id,
             "stages": {
                 "raw": {"traces": self._raw_traces(run, event_id, ingot)},
-                "ingot": {
-                    "columns": ["detector", "side", "index", "energy", "time"],
-                    "rows": self._ingot_table(ingot),
-                },
+                "ingot": ingot_stage,
                 "match": match,
             },
         }
@@ -247,6 +259,107 @@ class ChainService:
         if self._current is None:
             raise LookupError("no chain event is selected")
         return self.load(run=self._current[0], event_id=self._current[1] - 1)
+
+    def next_available(self, stage: ChainStage) -> dict[str, Any]:
+        return self._load_available(stage, direction=1)
+
+    def previous_available(self, stage: ChainStage) -> dict[str, Any]:
+        return self._load_available(stage, direction=-1)
+
+    def prefetch_available(self, stage: ChainStage) -> None:
+        """Warm stage-qualified neighbors without delaying the caller."""
+        if self._current is None:
+            raise LookupError("no chain event is selected")
+        run, event_id = self._current
+        self._schedule_prefetch(run, event_id, stage)
+
+    def _load_available(self, stage: ChainStage, *, direction: int) -> dict[str, Any]:
+        if self._current is None:
+            raise LookupError("no chain event is selected")
+        run, event_id = self._current
+        entries = self._available_entries(run, stage)
+        position = int(
+            np.searchsorted(entries, event_id, side="right" if direction > 0 else "left")
+        )
+        candidate_index = position if direction > 0 else position - 1
+        if candidate_index < 0 or candidate_index >= len(entries):
+            label = "next" if direction > 0 else "previous"
+            raise LookupError(f"no {label} available {stage} Chain event in run {run}")
+        target = int(entries[candidate_index])
+        payload = self.load(run=run, event_id=target)
+        self._schedule_prefetch(run, target, stage)
+        return payload
+
+    def _schedule_prefetch(self, run: int, event_id: int, stage: ChainStage) -> None:
+        keys = self._event_window(run, event_id)
+        keys.extend((run, value) for value in self._available_window(run, event_id, stage))
+        self._event_prefetcher.schedule(list(dict.fromkeys(keys)))
+
+    def _available_window(self, run: int, event_id: int, stage: ChainStage) -> list[int]:
+        entries = self._available_entries(run, stage)
+        position = int(np.searchsorted(entries, event_id, side="left"))
+        current_is_available = position < len(entries) and int(entries[position]) == event_id
+        before = entries[
+            max(0, position - CHAIN_AVAILABLE_PREFETCH_RADIUS):position
+        ][::-1]
+        after_start = position + 1 if current_is_available else position
+        after = entries[after_start:after_start + CHAIN_AVAILABLE_PREFETCH_RADIUS]
+        values: list[int] = [event_id] if current_is_available else []
+        values.extend(int(value) for value in before)
+        values.extend(int(value) for value in after)
+        return values
+
+    def _available_entries(self, run: int, stage: ChainStage) -> np.ndarray:
+        if stage not in {"raw", "ingot", "match"}:
+            raise ValueError(f"unknown Chain stage: {stage}")
+        key = (int(run), stage)
+        with self._availability_lock:
+            cached = self._availability_indexes.get(key)
+        if cached is not None:
+            return cached
+
+        if stage in {"raw", "ingot"}:
+            entries = np.union1d(
+                self._ingot_available_entries(run, "t0d1"),
+                self._ingot_available_entries(run, "t0d2"),
+            )
+        else:
+            entries = np.intersect1d(
+                self._match_available_entries(run, "t0d1"),
+                self._match_available_entries(run, "t0d2"),
+            )
+        entries = np.asarray(entries, dtype=np.int64)
+        with self._availability_lock:
+            return self._availability_indexes.setdefault(key, entries)
+
+    def _ingot_available_entries(self, run: int, detector: str) -> np.ndarray:
+        path = self.workspace / "ingot" / f"{detector}_{run}.root"
+        return self._available_entries_from_tree(path, ("nfront", "nback"))
+
+    def _match_available_entries(self, run: int, detector: str) -> np.ndarray:
+        path = self.workspace / "match" / f"{detector}_{run}.root"
+        return self._available_entries_from_tree(path, ("num",))
+
+    @staticmethod
+    def _available_entries_from_tree(
+        path: Path, count_branches: tuple[str, ...]
+    ) -> np.ndarray:
+        if not path.is_file():
+            return np.empty(0, dtype=np.int64)
+        try:
+            with uproot.open(path) as root_file:
+                tree = root_file["tree"]
+                required = ("entry", *count_branches)
+                if any(branch not in tree for branch in required):
+                    return np.empty(0, dtype=np.int64)
+                arrays = tree.arrays(required, library="np")
+            entries = np.asarray(arrays["entry"], dtype=np.int64)
+            counts = np.zeros(len(entries), dtype=bool)
+            for branch in count_branches:
+                counts |= np.asarray(arrays[branch], dtype=np.int64) > 0
+            return np.unique(entries[counts])
+        except (OSError, KeyError, ValueError):
+            return np.empty(0, dtype=np.int64)
 
     def _root_event(self, path: Path, event_id: int) -> dict[str, Any] | None:
         event, _ = self._root_event_with_position(path, event_id)
@@ -293,6 +406,132 @@ class ChainService:
             tau, t0 = self._values(event, "tau"), self._values(event, "t0")
             rows.append({"detector": "gagg", "side": "", "index": index, "energy": self._values(event, "amp")[i] if i < len(self._values(event, "amp")) else None, "time": (t0[i] + FIXED_GAMMA_N * tau[i]) if i < len(t0) and i < len(tau) else None})
         return rows
+
+    def _ingot_stage(
+        self,
+        run: int,
+        event_id: int,
+        ingot: dict[str, dict[str, Any] | None],
+    ) -> dict[str, Any]:
+        """Return retained ingot rows plus Brill's silicon-combination review."""
+        stage: dict[str, Any] = {
+            "columns": ["detector", "side", "index", "energy", "time"],
+            "rows": self._ingot_table(ingot),
+            "guesses": {
+                detector: {"front": [], "back": []}
+                for detector in ("d1", "d2")
+            },
+            "matrices": {
+                detector: {"distances": [], "energies": []}
+                for detector in ("d1", "d2")
+            },
+        }
+        if self.brill_config_path is None:
+            return stage
+
+        _, entry_position = self._root_event_with_position(
+            self.workspace / "ingot" / f"t0d1_{run}.root", event_id
+        )
+        if entry_position is None:
+            return stage
+
+        try:
+            with self._ingot_viewer_lock:
+                viewer = self._ingot_viewer(run)
+                for detector_index, detector in enumerate(("d1", "d2")):
+                    front, back = viewer.strip_combination_guesses(
+                        entry_position, detector_index
+                    )
+                    front_rows = self._ingot_guess_rows(
+                        front, side="front", event=ingot[detector]
+                    )
+                    back_rows = self._ingot_guess_rows(
+                        back, side="back", event=ingot[detector]
+                    )
+                    stage["guesses"][detector] = {
+                        "front": front_rows,
+                        "back": back_rows,
+                    }
+                    stage["matrices"][detector] = {
+                        "distances": self._guess_matrix(
+                            viewer.distances(front, back), len(front_rows), len(back_rows)
+                        ),
+                        "energies": self._guess_matrix(
+                            viewer.energies(front, back), len(front_rows), len(back_rows)
+                        ),
+                    }
+        except Exception as exc:
+            raise ValueError(
+                f"Unable to load Chain ingot guesses for run {run}: {exc}"
+            ) from exc
+        return stage
+
+    def _ingot_viewer(self, run: int) -> Any:
+        viewer = self._ingot_viewers.get(run)
+        if viewer is not None:
+            return viewer
+        try:
+            from py_brill_rcnp2025 import T0IngotViewer  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ValueError(
+                "py_brill_rcnp2025 is required for Chain ingot review; run uv sync"
+            ) from exc
+        viewer = T0IngotViewer(str(self.brill_config_path), int(run))
+        self._ingot_viewers[run] = viewer
+        return viewer
+
+    def _ingot_guess_rows(
+        self, guesses: list[Any], *, side: str, event: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "strips": self._guess_strips(int(guess.flag), side=side, event=event),
+                "type": self._guess_type_name(int(guess.type)),
+                "time": self._finite_guess_value(guess.time),
+                "energy": self._finite_guess_value(guess.value),
+                "weight": self._finite_guess_value(guess.weight),
+            }
+            for guess in guesses
+        ]
+
+    def _guess_strips(
+        self, flag: int, *, side: str, event: dict[str, Any] | None
+    ) -> list[int]:
+        mask = flag & 0xFF if side == "front" else (flag >> 8) & 0xFF
+        strips = self._values(event, f"{side}_strip")
+        return [
+            int(strip) for index, strip in enumerate(strips[:8]) if mask & (1 << index)
+        ]
+
+    @staticmethod
+    def _guess_type_name(guess_type: int) -> str:
+        if guess_type == 0:
+            return "normal"
+        names = [
+            name for flag, name in STRIP_GUESS_TYPE_NAMES.items() if guess_type & flag
+        ]
+        unknown = guess_type & ~sum(STRIP_GUESS_TYPE_NAMES)
+        if unknown:
+            names.append(f"unknown (0x{unknown:x})")
+        return " + ".join(names) if names else f"unknown ({guess_type})"
+
+    @staticmethod
+    def _finite_guess_value(value: Any) -> float | None:
+        number = float(value)
+        return number if math.isfinite(number) else None
+
+    def _guess_matrix(
+        self, values: list[float], row_count: int, column_count: int
+    ) -> list[list[float | None]]:
+        return [
+            [
+                self._finite_guess_value(values[row * column_count + column])
+                if row * column_count + column < len(values)
+                else None
+                for column in range(column_count)
+            ]
+            for row in range(row_count)
+        ]
 
     def _match_stage(
         self,

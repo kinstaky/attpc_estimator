@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -170,6 +171,11 @@ def default_ui_state() -> dict[str, Any]:
             "selectedD1Index": None,
             "selectedD2Index": None,
             "selectedGaggIndex": None,
+            "ingotDistanceThreshold": 1000.0,
+            "selectedD1FrontGuessIndex": None,
+            "selectedD1BackGuessIndex": None,
+            "selectedD2FrontGuessIndex": None,
+            "selectedD2BackGuessIndex": None,
         },
     }
 
@@ -658,6 +664,19 @@ class EstimatorService:
         event = self.chain.previous()
         self.session.event_id = int(event["eventId"])
         return event
+
+    def next_available_chain_event(self, stage: str) -> dict[str, Any]:
+        event = self.chain.next_available(stage)
+        self.session.event_id = int(event["eventId"])
+        return event
+
+    def previous_available_chain_event(self, stage: str) -> dict[str, Any]:
+        event = self.chain.previous_available(stage)
+        self.session.event_id = int(event["eventId"])
+        return event
+
+    def prefetch_available_chain_events(self, stage: str) -> None:
+        self.chain.prefetch_available(stage)
 
     def chain_match_pid_background(self) -> dict[str, Any]:
         return self.chain.match_pid_background()
@@ -1721,6 +1740,23 @@ class EstimatorService:
             if isinstance(show_theory_lines, bool):
                 state["chain"]["showTheoryLines"] = show_theory_lines
             for key in ("selectedD1Index", "selectedD2Index", "selectedGaggIndex"):
+                value = chain_payload.get(key)
+                if value is None or isinstance(value, int) and value >= 0:
+                    state["chain"][key] = value
+            distance_threshold = chain_payload.get("ingotDistanceThreshold")
+            if (
+                isinstance(distance_threshold, (int, float))
+                and not isinstance(distance_threshold, bool)
+                and math.isfinite(distance_threshold)
+                and distance_threshold >= 0.0
+            ):
+                state["chain"]["ingotDistanceThreshold"] = float(distance_threshold)
+            for key in (
+                "selectedD1FrontGuessIndex",
+                "selectedD1BackGuessIndex",
+                "selectedD2FrontGuessIndex",
+                "selectedD2BackGuessIndex",
+            ):
                 value = chain_payload.get(key)
                 if value is None or isinstance(value, int) and value >= 0:
                     state["chain"][key] = value

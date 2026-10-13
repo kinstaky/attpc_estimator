@@ -177,6 +177,34 @@ def build_api_router(service: EstimatorService, detector_dir: Path) -> APIRouter
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @router.post("/chain/available/next")
+    def next_available_chain_event(stage: str) -> dict:
+        try:
+            return service.next_available_chain_event(stage)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/chain/available/previous")
+    def previous_available_chain_event(stage: str) -> dict:
+        try:
+            return service.previous_available_chain_event(stage)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/chain/available/prefetch")
+    def prefetch_available_chain_events(stage: str) -> dict[str, bool]:
+        try:
+            service.prefetch_available_chain_events(stage)
+            return {"scheduled": True}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @router.get("/chain/match-pid-background")
     def chain_match_pid_background() -> dict:
         try:

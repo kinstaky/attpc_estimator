@@ -198,6 +198,18 @@ export function previousChainEvent(): Promise<ChainEventPayload> {
   return request<ChainEventPayload>("/api/chain/previous", { method: "POST" });
 }
 
+export function nextAvailableChainEvent(stage: "raw" | "ingot" | "match"): Promise<ChainEventPayload> {
+  return request<ChainEventPayload>(`/api/chain/available/next?stage=${stage}`, { method: "POST" });
+}
+
+export function previousAvailableChainEvent(stage: "raw" | "ingot" | "match"): Promise<ChainEventPayload> {
+  return request<ChainEventPayload>(`/api/chain/available/previous?stage=${stage}`, { method: "POST" });
+}
+
+export function prefetchAvailableChainEvents(stage: "raw" | "ingot" | "match"): Promise<{ scheduled: boolean }> {
+  return request<{ scheduled: boolean }>(`/api/chain/available/prefetch?stage=${stage}`, { method: "POST" });
+}
+
 export function getChainMatchPidBackground(): Promise<ChainMatchPidBackgroundPayload> {
   return request<ChainMatchPidBackgroundPayload>("/api/chain/match-pid-background");
 }

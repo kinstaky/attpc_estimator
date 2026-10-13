@@ -661,6 +661,210 @@ body {
   gap: 1.2rem;
 }
 
+.chain-ingot-stage,
+.chain-ingot-guess-stage,
+.chain-ingot-matrix-grid {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.chain-ingot-review-heading,
+.chain-ingot-matrix-panel > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.chain-ingot-review-heading h3,
+.chain-ingot-matrix-panel h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 760;
+}
+
+.chain-ingot-review-heading .page-kicker,
+.chain-ingot-matrix-panel .page-kicker {
+  margin-bottom: 0.2rem;
+}
+
+.chain-ingot-threshold {
+  flex: 0 1 12rem;
+  min-width: 10rem;
+}
+
+.chain-ingot-guess-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.chain-ingot-guess-table-shell,
+.chain-ingot-matrix-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--signal) 18%, var(--surface-muted));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--surface) 94%, var(--signal-soft));
+}
+
+.chain-ingot-guess-table-shell > header,
+.chain-ingot-matrix-panel > header {
+  padding: 0.76rem 0.95rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--signal) 16%, var(--surface-muted));
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.chain-ingot-guess-table-shell > header strong {
+  display: grid;
+  min-width: 1.65rem;
+  min-height: 1.4rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.chain-ingot-guess-table-shell--d1,
+.chain-ingot-matrix-panel--d1 { --chain-ingot-color: #2563eb; border-top: 3px solid #2563eb; }
+.chain-ingot-guess-table-shell--d2,
+.chain-ingot-matrix-panel--d2 { --chain-ingot-color: #7c3aed; border-top: 3px solid #7c3aed; }
+
+.chain-ingot-guess-table-shell > header span,
+.chain-ingot-matrix-panel .page-kicker { color: var(--chain-ingot-color, var(--signal)); }
+
+.chain-ingot-guess-table {
+  min-width: 0;
+}
+
+.chain-ingot-guess-table th,
+.chain-ingot-guess-table td {
+  padding-inline: 0.62rem !important;
+  white-space: nowrap;
+}
+
+.chain-ingot-guess-table tbody tr {
+  cursor: pointer;
+  outline: none;
+}
+
+.chain-ingot-guess-table tbody tr:focus-visible td {
+  box-shadow: inset 0 0 0 2px var(--chain-ingot-color, var(--signal));
+}
+
+.chain-ingot-guess-table tbody tr.chain-ingot-guess-row--selected td {
+  background: color-mix(in srgb, var(--chain-ingot-color, var(--signal)) 16%, var(--surface)) !important;
+  color: var(--ink) !important;
+  font-weight: 760;
+}
+
+.chain-guess-type {
+  color: var(--muted-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.chain-ingot-matrix-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chain-ingot-matrix-panel > header > span {
+  color: var(--muted-ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-align: right;
+  text-transform: none;
+}
+
+.chain-ingot-matrix-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: color-mix(in srgb, var(--signal) 14%, var(--surface-muted));
+}
+
+.chain-ingot-matrix-shell {
+  min-width: 0;
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--surface) 97%, var(--signal-soft));
+}
+
+.chain-ingot-matrix-shell h4 {
+  margin: 0 0 0.6rem;
+  color: var(--muted-ink);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chain-ingot-matrix-scroll {
+  overflow: auto;
+}
+
+.chain-ingot-matrix {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: separate;
+  border-spacing: 2px;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.chain-ingot-matrix th,
+.chain-ingot-matrix td {
+  min-width: 4.7rem;
+  padding: 0.46rem 0.58rem;
+  border-radius: 0.35rem;
+  text-align: right;
+}
+
+.chain-ingot-matrix th {
+  color: var(--muted-ink);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.chain-ingot-matrix th.chain-ingot-matrix__row--selected {
+  color: var(--chain-ingot-color, var(--signal));
+}
+
+.chain-ingot-matrix th.chain-ingot-matrix__column--selected {
+  color: var(--signal);
+}
+
+.chain-ingot-matrix td {
+  background: color-mix(in srgb, var(--surface-muted) 36%, transparent);
+  font-weight: 650;
+}
+
+.chain-ingot-matrix__cell--row-selected {
+  background: color-mix(in srgb, var(--chain-ingot-color, var(--signal)) 10%, var(--surface)) !important;
+}
+
+.chain-ingot-matrix__cell--column-selected {
+  background: color-mix(in srgb, var(--signal) 11%, var(--surface)) !important;
+}
+
+.chain-ingot-matrix__cell--selected {
+  background: color-mix(in srgb, var(--chain-ingot-color, var(--signal)) 24%, var(--signal-soft)) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chain-ingot-color, var(--signal)) 52%, transparent);
+  font-weight: 800;
+}
+
+.chain-ingot-matrix__cell--best {
+  color: var(--chain-ingot-color, var(--signal));
+  font-weight: 850;
+}
+
 .chain-match-tables,
 .chain-pid-grid {
   display: grid;
@@ -856,8 +1060,19 @@ body {
 @media (max-width: 900px) {
   .chain-trace-grid { grid-template-columns: 1fr; }
   .chain-match-tables,
-  .chain-pid-grid { grid-template-columns: 1fr; }
+  .chain-pid-grid,
+  .chain-ingot-matrix-grid { grid-template-columns: 1fr; }
+  .chain-ingot-guess-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chain-ingot-review-heading { align-items: stretch; flex-direction: column; }
+  .chain-ingot-threshold { max-width: none; }
   .chain-theory-toolbar { flex-direction: column; }
+}
+
+@media (max-width: 640px) {
+  .chain-ingot-guess-grid,
+  .chain-ingot-matrix-pair { grid-template-columns: 1fr; }
+  .chain-ingot-matrix-panel > header { align-items: flex-start; flex-direction: column; }
+  .chain-ingot-matrix-panel > header > span { text-align: left; }
 }
 
 .result-plot {

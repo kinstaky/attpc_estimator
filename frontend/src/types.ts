@@ -56,6 +56,30 @@ export interface ChainStageTable {
   rows: Record<string, string | number | null>[];
 }
 
+export interface ChainIngotGuess {
+  strips: number[];
+  type: string;
+  time: number | null;
+  energy: number | null;
+  weight: number | null;
+}
+
+export interface ChainIngotMatrix {
+  distances: Array<Array<number | null>>;
+  energies: Array<Array<number | null>>;
+}
+
+export interface ChainIngotStage extends ChainStageTable {
+  guesses: {
+    d1: { front: ChainIngotGuess[]; back: ChainIngotGuess[] };
+    d2: { front: ChainIngotGuess[]; back: ChainIngotGuess[] };
+  };
+  matrices: {
+    d1: ChainIngotMatrix;
+    d2: ChainIngotMatrix;
+  };
+}
+
 export interface ChainMatchTable {
   rows: Record<string, string | number | null>[];
 }
@@ -101,7 +125,7 @@ export interface ChainEventPayload {
   eventId: number;
   stages: {
     raw: { traces: ChainTrace[] };
-    ingot: ChainStageTable;
+    ingot: ChainIngotStage;
     match: ChainMatchStage;
   };
 }
@@ -185,6 +209,11 @@ export interface ChainUiState {
   selectedD1Index: number | null;
   selectedD2Index: number | null;
   selectedGaggIndex: number | null;
+  ingotDistanceThreshold: number;
+  selectedD1FrontGuessIndex: number | null;
+  selectedD1BackGuessIndex: number | null;
+  selectedD2FrontGuessIndex: number | null;
+  selectedD2BackGuessIndex: number | null;
 }
 
 export interface AppearanceUiState {
