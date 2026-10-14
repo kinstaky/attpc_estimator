@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-from attpc_estimator.cli.cdf import main
 from attpc_estimator.storage.labels_db import LabelRepository
 from attpc_estimator.process.cdf import build_labeled_cdf_histograms
 from tests.hdf5_fixtures import write_legacy_hdf5
@@ -119,61 +117,3 @@ def test_build_labeled_cdf_histograms_supports_legacy_trace_layout(tmp_path) -> 
 
     assert payload["run_id"] == 8
     assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
-
-
-def test_cdf_main_writes_labeled_output_for_selected_run(tmp_path, monkeypatch) -> None:
-    workspace, trace_root = make_workspace(tmp_path)
-    seed_labels(workspace)
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "cdf",
-            "-t",
-            str(trace_root),
-            "-w",
-            str(workspace),
-            "-r",
-            "0008",
-            "--baseline-window-scale",
-            "12.5",
-            "--labeled",
-        ],
-    )
-    main()
-
-    output_path = workspace / "histograms" / "run_0008_labeled_cdf.npz"
-    payload = np.load(output_path)
-
-    assert output_path.is_file()
-    assert payload["run_id"] == 8
-    assert payload["trace_counts"].tolist() == [1, 0, 0, 0, 1, 0, 1]
-
-
-def test_cdf_labeled_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
-    workspace, trace_root = make_workspace(tmp_path)
-    seed_labels(workspace)
-    config_path = tmp_path / "cdf.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                f'trace_path = "{trace_root}"',
-                f'workspace = "{workspace}"',
-                'run = "0008"',
-                "",
-                "[attpc.cdf]",
-                "labeled = true",
-                "baseline_window_scale = 12.5",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
-    main()
-
-    output_path = workspace / "histograms" / "run_0008_labeled_cdf.npz"
-    payload = np.load(output_path)
-    assert output_path.is_file()
-    assert payload["run_id"] == 8

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import uproot
-from pointcloud import TraceLength, find_trace_peaks
+from pointcloud import find_trace_peaks
 
 from ..process.gagg_fit import fit_gamma_pulse, is_gagg_fit_eligible
 from ..process.gagg_parameters import GaggFitParameters

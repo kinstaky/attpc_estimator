@@ -2,108 +2,19 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import config_relative_path, parse_toml_config, root_config_values, table_config_values
+from .detector_args import parse_detector_pipeline_args
 from ..pipeline.ic import process_run
 from ..pipeline.progress_reporter import TqdmProgressReporter
 
-def _parse_args() -> argparse.Namespace:
-    config_path, payload = parse_toml_config(sys.argv[1:])
-    config = root_config_values(payload, allowed_keys={"trace_path", "workspace", "run"})
-    run_tags_config = table_config_values(payload, table="run_tags", allowed_keys={"path"})
-    baseline_config = table_config_values(
-        payload,
-        table="ic.baseline",
-        allowed_keys={"fft_window_scale"},
-    )
-    amplitude_config = table_config_values(
-        payload,
-        table="ic.amplitude",
-        allowed_keys={
-            "peak_separation",
-            "peak_prominence",
-            "peak_width",
-            "peak_threshold",
-            "rel_height",
-        },
-    )
-    time_config = table_config_values(
-        payload,
-        table="ic.time",
-        allowed_keys={
-            "min",
-            "max",
-        },
-    )
 
-    parser = argparse.ArgumentParser(description="Build phase-1 ion-chamber parquet for raw runs")
-    parser.add_argument("-c", "--config", dest="config_file", default=str(config_path))
-    parser.add_argument(
-        "-t",
-        "--trace-path",
-        required="trace_path" not in config,
-        default=config.get("trace_path"),
-        help="Path to a trace file or a directory containing run_<run>.h5 files",
+def _parse_args() -> argparse.Namespace:
+    return parse_detector_pipeline_args(
+        sys.argv[1:],
+        detector="ic",
+        description="Build ion-chamber ingot ROOT files",
+        min_time_default=62.0,
+        max_time_default=68,
     )
-    parser.add_argument(
-        "-w",
-        "--workspace",
-        required="workspace" not in config,
-        default=config.get("workspace"),
-        help="Workspace directory used for ion-chamber parquet output",
-    )
-    parser.add_argument(
-        "-r",
-        "--run",
-        required="run" not in config,
-        default=config.get("run"),
-        help="Run identifier to process. May be repeated.",
-    )
-    parser.add_argument(
-        "--baseline-window-scale",
-        type=float,
-        default=baseline_config.get("fft_window_scale", 20.0),
-    )
-    parser.add_argument(
-        "--peak-separation",
-        type=float,
-        default=amplitude_config.get("peak_separation", 50.0),
-    )
-    parser.add_argument(
-        "--peak-prominence",
-        type=float,
-        default=amplitude_config.get("peak_prominence", 20.0),
-    )
-    parser.add_argument(
-        "--peak-width",
-        type=float,
-        default=amplitude_config.get("peak_width", 500.0),
-    )
-    parser.add_argument(
-        "--peak-threshold",
-        type=float,
-        default=amplitude_config.get("peak_threshold", 100.0),
-    )
-    parser.add_argument(
-        "--peak-rel-height",
-        type=float,
-        default=amplitude_config.get("rel_height", 0.85)
-    )
-    parser.add_argument(
-        "--min-time",
-        type=float,
-        default=time_config.get("min", 62.0),
-    )
-    parser.add_argument(
-        "--max-time",
-        type=int,
-        default=time_config.get("max", 68.0),
-    )
-    args = parser.parse_args()
-    run_tags_path = run_tags_config.get("path")
-    if not isinstance(run_tags_path, str) or not run_tags_path.strip():
-        raise ValueError("run_tags.path must name the runs workbook")
-    args.run_tags_path = config_relative_path(config_path, run_tags_path)
-    return args
 
 
 def main() -> None:
@@ -133,6 +44,7 @@ def main() -> None:
         print(f"Successfully built run {args.run} ion-chamber root files.")
     else:
         print(f"Failed to build run {args.run} ion-chamber root files.")
+
 
 if __name__ == "__main__":
     main()

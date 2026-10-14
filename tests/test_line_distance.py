@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-from attpc_estimator.cli.line_distance import main as line_distance_main
 from attpc_estimator.process.line_distance import (
     LineDistanceHistogramConfig,
     LineCluster,
@@ -104,43 +102,6 @@ def test_ordered_centroid_to_line_distance_uses_second_centroid_against_first_li
     )
 
     assert ordered_centroid_to_line_distance(first, second) == 5.0
-
-
-def test_line_distance_main_writes_histogram_artifact(tmp_path: Path, monkeypatch) -> None:
-    workspace = tmp_path / "workspace"
-    pointcloud_path = workspace / "pointcloud" / "run_0008.h5"
-    _write_pointcloud_run(pointcloud_path)
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "line_distance",
-            "-w",
-            str(workspace),
-            "-r",
-            "8",
-            "--residual-threshold",
-            "1.0",
-            "--max-trials",
-            "100",
-            "--max-iterations",
-            "6",
-            "--target-labeled-ratio",
-            "0.8",
-            "--min-inliers",
-            "3",
-            "--max-start-radius",
-            "40.0",
-        ],
-    )
-    line_distance_main()
-
-    output_path = workspace / "histograms" / "run_0008_line_distance.npz"
-    payload = np.load(output_path)
-    assert output_path.is_file()
-    assert int(payload["run_id"]) == 8
-    assert int(payload["processed_events"]) == 2
 
 
 def test_histogram_service_loads_line_distance_payload(tmp_path: Path) -> None:

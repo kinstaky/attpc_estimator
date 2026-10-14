@@ -71,7 +71,6 @@ from ..utils.trace_data import (
     DETECTOR_SI,
     collect_event_counts,
     compute_frequency_distribution,
-    load_detector_traces,
     load_pad_traces,
     normalize_detector,
     open_storage_trace_reader,

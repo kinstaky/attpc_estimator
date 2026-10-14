@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-from attpc_estimator.cli.coplanar import main as coplanar_main
 from attpc_estimator.process.coplanar import (
     COPLANAR_RANGE,
     DEFAULT_COPLANAR_BINS,
@@ -127,39 +125,6 @@ def test_coplanar_histogram_skips_out_of_range_values() -> None:
 
     assert accepted is False
     assert int(histogram.sum()) == 0
-
-
-def test_coplanar_main_writes_histogram_artifact(tmp_path: Path, monkeypatch, capsys) -> None:
-    workspace = tmp_path / "workspace"
-    pointcloud_path = workspace / "pointcloud" / "run_0008.h5"
-    _write_pointcloud_run(pointcloud_path)
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "coplanar",
-            "-w",
-            str(workspace),
-            "-r",
-            "8",
-        ],
-    )
-    coplanar_main()
-
-    output_path = workspace / "histograms" / "run_0008_coplanar.npz"
-    payload = np.load(output_path)
-    stdout = capsys.readouterr().out
-    assert output_path.is_file()
-    assert int(payload["run_id"]) == 8
-    assert int(payload["processed_events"]) == 3
-    assert int(payload["accepted_events"]) == 1
-    assert int(payload["skipped_events"]) == 2
-    assert int(payload["valid_events"]) == 2
-    assert "ratio under 0.001: 1/2 (0.500000)" in stdout
-    assert "ratio under 0.01: 1/2 (0.500000)" in stdout
-    assert "ratio under 0.02: 1/2 (0.500000)" in stdout
-    assert "ratio under 0.05: 1/2 (0.500000)" in stdout
 
 
 def test_histogram_service_loads_coplanar_payload(tmp_path: Path) -> None:

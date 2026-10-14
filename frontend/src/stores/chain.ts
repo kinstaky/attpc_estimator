@@ -17,24 +17,28 @@ const state = reactive<ChainUiState>({
   selectedD2BackGuessIndex: null,
 });
 
+function validIndex(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 function applyUiState(payload: ChainUiState | null | undefined): void {
   if (!payload) return;
-  state.selectedRun = payload.selectedRun;
-  state.selectedEventId = payload.selectedEventId;
-  state.stage = payload.stage;
+  state.selectedRun = validIndex(payload.selectedRun);
+  state.selectedEventId = validIndex(payload.selectedEventId);
+  state.stage = ["raw", "ingot", "match"].includes(payload.stage) ? payload.stage : "raw";
   state.showTheoryLines = typeof payload.showTheoryLines === "boolean"
     ? payload.showTheoryLines
     : true;
-  state.selectedD1Index = typeof payload.selectedD1Index === "number" ? payload.selectedD1Index : null;
-  state.selectedD2Index = typeof payload.selectedD2Index === "number" ? payload.selectedD2Index : null;
-  state.selectedGaggIndex = typeof payload.selectedGaggIndex === "number" ? payload.selectedGaggIndex : null;
+  state.selectedD1Index = validIndex(payload.selectedD1Index);
+  state.selectedD2Index = validIndex(payload.selectedD2Index);
+  state.selectedGaggIndex = validIndex(payload.selectedGaggIndex);
   state.ingotDistanceThreshold = typeof payload.ingotDistanceThreshold === "number" && Number.isFinite(payload.ingotDistanceThreshold) && payload.ingotDistanceThreshold >= 0
     ? payload.ingotDistanceThreshold
     : 1000;
-  state.selectedD1FrontGuessIndex = typeof payload.selectedD1FrontGuessIndex === "number" ? payload.selectedD1FrontGuessIndex : null;
-  state.selectedD1BackGuessIndex = typeof payload.selectedD1BackGuessIndex === "number" ? payload.selectedD1BackGuessIndex : null;
-  state.selectedD2FrontGuessIndex = typeof payload.selectedD2FrontGuessIndex === "number" ? payload.selectedD2FrontGuessIndex : null;
-  state.selectedD2BackGuessIndex = typeof payload.selectedD2BackGuessIndex === "number" ? payload.selectedD2BackGuessIndex : null;
+  state.selectedD1FrontGuessIndex = validIndex(payload.selectedD1FrontGuessIndex);
+  state.selectedD1BackGuessIndex = validIndex(payload.selectedD1BackGuessIndex);
+  state.selectedD2FrontGuessIndex = validIndex(payload.selectedD2FrontGuessIndex);
+  state.selectedD2BackGuessIndex = validIndex(payload.selectedD2BackGuessIndex);
 }
 
 function serializeUiState(): ChainUiState {

@@ -7,11 +7,10 @@ from threading import Lock
 
 import numpy as np
 from scipy import signal
-from scipy.optimize import least_squares
 from pointcloud import find_trace_peaks
 
 from ..model.trace import TraceRecord, TraceRef
-from ..process.gagg_fit import FIXED_GAMMA_N, GammaPulseFit, fit_raw_gamma_pulse, gamma_pulse, is_gagg_fit_eligible
+from ..process.gagg_fit import GammaPulseFit, fit_raw_gamma_pulse
 from ..process.gagg_parameters import GaggFitParameters
 from ..utils.gagg_processing import GaggTraceProcessingRule, require_gagg_peak_config
 
@@ -78,89 +77,6 @@ class BrowseGaggFits:
 
 def _unavailable(reason: str) -> GammaPulseFit:
     return GammaPulseFit(status="unavailable", reason=reason)
-
-
-def _fit_raw_gamma_legacy(
-    trace: np.ndarray,
-    fit_mask: np.ndarray | None = None,
-    *,
-    fixed_tau: float | None = None,
-) -> GammaPulseFit:
-    """Fit raw ADC samples with a free constant baseline plus gamma pulse."""
-    values = np.asarray(trace, dtype=np.float64).reshape(-1)
-    if values.size < 8 or not np.all(np.isfinite(values)):
-        return _unavailable("trace is too short or contains non-finite samples")
-    mask = np.ones(values.size, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
-    if mask.size != values.size or int(mask.sum()) < 8:
-        return _unavailable("too few unclipped samples to fit")
-    if fixed_tau is not None and fixed_tau <= 0.0:
-        return _unavailable("configured fixed tau must be positive")
-
-    samples = np.arange(values.size, dtype=np.float64)
-    usable_indexes = np.flatnonzero(mask)
-    baseline0 = float(np.median(values[mask]))
-    signal = values - baseline0
-    peak_index = int(usable_indexes[np.argmax(signal[mask])])
-    peak_height = float(signal[peak_index])
-    if peak_index < 2 or peak_height <= 0.0:
-        return _unavailable("trace has no positive pulse above its fitted baseline")
-    centered = values[mask] - float(np.mean(values[mask]))
-    total_ss = float(np.dot(centered, centered))
-    if total_ss <= np.finfo(np.float64).eps:
-        return _unavailable("trace has no variation")
-
-    onset_candidates = np.flatnonzero(signal[mask] >= peak_height * 0.1)
-    if onset_candidates.size == 0:
-        return _unavailable("trace has no pulse onset")
-    onset_index = int(usable_indexes[onset_candidates[0]])
-    upper_t0 = float(peak_index) - 0.05
-    if upper_t0 <= 0.0:
-        return _unavailable("trace peak occurs too early to fit")
-    t0_candidates = (0.0, min(float(onset_index), upper_t0), max(0.0, float(peak_index) * 0.5))
-
-    best: np.ndarray | None = None
-    best_ss = np.inf
-    for t0 in t0_candidates:
-        tau0 = max(0.25, (float(peak_index) - t0) / FIXED_GAMMA_N) if fixed_tau is None else float(fixed_tau)
-        offset = max(float(peak_index) - t0, 0.05)
-        shape = offset**FIXED_GAMMA_N * np.exp(-offset / tau0)
-        amplitude0 = max(peak_height / max(shape, 1e-12), 1e-12)
-        try:
-            if fixed_tau is None:
-                result = least_squares(
-                    lambda p: (p[0] + gamma_pulse(samples, p[1], FIXED_GAMMA_N, p[2], p[3]))[mask] - values[mask],
-                    x0=[baseline0, amplitude0, t0, tau0],
-                    bounds=([-np.inf, 0.0, 0.0, 0.25], [np.inf, np.inf, upper_t0, float(values.size)]),
-                    max_nfev=4000,
-                )
-            else:
-                result = least_squares(
-                    lambda p: (p[0] + gamma_pulse(samples, p[1], FIXED_GAMMA_N, p[2], float(fixed_tau)))[mask] - values[mask],
-                    x0=[baseline0, amplitude0, t0],
-                    bounds=([-np.inf, 0.0, 0.0], [np.inf, np.inf, upper_t0]),
-                    max_nfev=4000,
-                )
-        except (FloatingPointError, ValueError):
-            continue
-        if result.success and np.all(np.isfinite(result.x)):
-            ss = float(np.dot(result.fun, result.fun))
-            if ss < best_ss:
-                best, best_ss = result.x, ss
-    if best is None:
-        return _unavailable("raw gamma fit did not converge")
-
-    if fixed_tau is None:
-        baseline, amplitude, t0, tau = (float(value) for value in best)
-    else:
-        baseline, amplitude, t0 = (float(value) for value in best)
-        tau = float(fixed_tau)
-    fitted = baseline + gamma_pulse(samples, amplitude, FIXED_GAMMA_N, t0, tau)
-    return GammaPulseFit(
-        status="ok", fitted=fitted.astype(np.float32), amplitude=amplitude,
-        n=FIXED_GAMMA_N, t0=t0, tau=tau,
-        rmse=float(np.sqrt(best_ss / int(mask.sum()))),
-        r_squared=float(1.0 - best_ss / total_ss), baseline=baseline,
-    )
 
 
 def _fit_raw_gamma(

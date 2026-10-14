@@ -515,6 +515,7 @@ export interface HistogramPlot {
   key: string;
   render: "bar" | "heatmap" | "grouped_bar";
   title: string;
+  traceCount?: number;
   histogram?: number[] | number[][];
   binCenters?: number[];
   binLabel?: string;

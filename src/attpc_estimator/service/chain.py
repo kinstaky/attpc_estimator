@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+from contextlib import ExitStack, closing
 from pathlib import Path
 import re
 import subprocess
@@ -200,6 +201,8 @@ class ChainService:
 
     def load(self, *, run: int, event_id: int) -> dict[str, Any]:
         run, event_id = int(run), int(event_id)
+        if event_id < 0:
+            raise ValueError("Chain event id must be nonnegative")
         key = (run, event_id)
         payload = self._event_prefetcher.get_cached(key)
         if payload is None:
@@ -221,7 +224,9 @@ class ChainService:
     def _event_window(self, run: int, event_id: int) -> list[ChainEventKey]:
         keys = [(run, event_id)]
         for distance in range(1, CHAIN_EVENT_PREFETCH_RADIUS + 1):
-            keys.extend(((run, event_id + distance), (run, event_id - distance)))
+            keys.append((run, event_id + distance))
+            if event_id >= distance:
+                keys.append((run, event_id - distance))
         return keys
 
     def _load_prefetched_event(self, key: ChainEventKey) -> dict[str, Any]:
@@ -258,6 +263,8 @@ class ChainService:
     def previous(self) -> dict[str, Any]:
         if self._current is None:
             raise LookupError("no chain event is selected")
+        if self._current[1] == 0:
+            raise LookupError("no previous Chain event before event 0")
         return self.load(run=self._current[0], event_id=self._current[1] - 1)
 
     def next_available(self, stage: ChainStage) -> dict[str, Any]:
@@ -392,6 +399,21 @@ class ChainService:
         value = (event or {}).get(key, [])
         return value if isinstance(value, list) else []
 
+    def _gagg_rows(self, event: dict[str, Any] | None) -> list[dict[str, Any]]:
+        indexes = self._values(event, "index")
+        amplitudes = self._values(event, "amp")
+        taus = self._values(event, "tau")
+        starts = self._values(event, "t0")
+        return [
+            {
+                "index": value,
+                "energy": amplitudes[i] if i < len(amplitudes) else None,
+                "time": starts[i] + FIXED_GAMMA_N * taus[i]
+                if i < len(starts) and i < len(taus) else None,
+            }
+            for i, value in enumerate(indexes)
+        ]
+
     def _ingot_table(self, ingot: dict[str, dict[str, Any] | None]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for detector in ("d1", "d2"):
@@ -401,10 +423,7 @@ class ChainService:
                 energy = self._values(event, f"{side}_integral")
                 time = self._values(event, f"{side}_time")
                 rows.extend({"detector": detector, "side": side, "index": strip, "energy": energy[i] if i < len(energy) else None, "time": time[i] if i < len(time) else None} for i, strip in enumerate(strips))
-        event = ingot["gagg"]
-        for i, index in enumerate(self._values(event, "index")):
-            tau, t0 = self._values(event, "tau"), self._values(event, "t0")
-            rows.append({"detector": "gagg", "side": "", "index": index, "energy": self._values(event, "amp")[i] if i < len(self._values(event, "amp")) else None, "time": (t0[i] + FIXED_GAMMA_N * tau[i]) if i < len(t0) and i < len(tau) else None})
+        rows.extend({"detector": "gagg", "side": "", **row} for row in self._gagg_rows(ingot["gagg"]))
         return rows
 
     def _ingot_stage(
@@ -578,23 +597,7 @@ class ChainService:
         return rows
 
     def _gagg_match_rows(self, event: dict[str, Any] | None) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        indexes = self._values(event, "index")
-        amplitude = self._values(event, "amp")
-        tau, t0 = self._values(event, "tau"), self._values(event, "t0")
-        for index, value in enumerate(indexes):
-            rows.append(
-                {
-                    "index": value,
-                    "energy": amplitude[index] if index < len(amplitude) else None,
-                    "time": (
-                        t0[index] + FIXED_GAMMA_N * tau[index]
-                        if index < len(t0) and index < len(tau)
-                        else None
-                    ),
-                }
-            )
-        return rows
+        return self._gagg_rows(event)
 
     def _calibrated_energies(
         self,
@@ -625,7 +628,7 @@ class ChainService:
                         selected[component] = index
                         result = viewer.calibrated_energy(entry_position, *selected)
                         value = result[component]
-                        calibrated.append(float(value) if value is not None else None)
+                        calibrated.append(self._finite_guess_value(value) if value is not None else None)
                     values[detector] = calibrated
                 return values
         except Exception as exc:
@@ -939,36 +942,94 @@ class ChainService:
             "z": values.T.tolist(),
         }
 
-    def _raw_traces(self, run: int, event_id: int, ingot: dict[str, dict[str, Any] | None]) -> list[dict[str, Any]]:
-        selected_si = {(0 if detector == "d1" else 2) + (0 if side == "front" else 1): set(self._values(ingot[detector], f"{side}_strip")) for detector in ("d1", "d2") for side in ("front", "back")}
+    def _raw_traces(
+        self,
+        run: int,
+        event_id: int,
+        ingot: dict[str, dict[str, Any] | None],
+    ) -> list[dict[str, Any]]:
+        selected_si = {
+            (0 if detector == "d1" else 2) + (0 if side == "front" else 1):
+            set(self._values(ingot[detector], f"{side}_strip"))
+            for detector in ("d1", "d2")
+            for side in ("front", "back")
+        }
+        selected_gagg = {
+            int(value) for value in self._values(ingot["gagg"], "index")
+        }
+        has_si = any(selected_si.values())
+        if not has_si and not selected_gagg:
+            return []
+
         output: list[dict[str, Any]] = []
-        si_reader = open_storage_trace_reader(run=run, path=str(resolve_run_file(self.trace_path, run)), detector=DETECTOR_SI)
-        gagg_reader = open_storage_trace_reader(run=run, path=str(resolve_run_file(self.trace_path, run)), detector=DETECTOR_GAGG)
-        try:
-            try:
-                si_rows = reader_event_rows(si_reader, event_id, detector=DETECTOR_SI)
-                for side_code in range(4):
+        path = str(resolve_run_file(self.trace_path, run))
+        with ExitStack() as readers:
+            if has_si:
+                si_reader = readers.enter_context(closing(open_storage_trace_reader(
+                    run=run, path=path, detector=DETECTOR_SI
+                )))
+                try:
+                    si_rows = reader_event_rows(si_reader, event_id, detector=DETECTOR_SI)
+                except LookupError:
+                    si_rows = []
+                for side_code, selected_strips in selected_si.items():
+                    if not selected_strips:
+                        continue
                     selected_rows = sorted(
-                        ((trace_id, raw_row) for trace_id, raw_row in enumerate(si_rows) if int(raw_row[0]) == side_code and int(raw_row[1]) in selected_si[side_code]),
+                        (
+                            (trace_id, raw_row)
+                            for trace_id, raw_row in enumerate(si_rows)
+                            if int(raw_row[0]) == side_code
+                            and int(raw_row[1]) in selected_strips
+                        ),
                         key=lambda item: int(item[1][1]),
                     )
                     for trace_id, raw_row in selected_rows:
-                        record = trace_record_from_silicon_row(run=run, event_id=event_id, trace_id=trace_id, row=raw_row, baseline_window_scale=self.silicon_baseline_window_scale)
-                        output.append({"detector": "silicon", "side": SI_CODE_TO_SIDE[side_code], "index": int(raw_row[1]), "raw": record.raw.tolist(), "fit": None})
-            except LookupError:
-                pass
-            try:
-                gagg_rows = reader_event_rows(gagg_reader, event_id, detector=DETECTOR_GAGG)
-                selected_gagg = set(self._values(ingot["gagg"], "index"))
-                for index in sorted(int(value) for value in selected_gagg):
+                        record = trace_record_from_silicon_row(
+                            run=run,
+                            event_id=event_id,
+                            trace_id=trace_id,
+                            row=raw_row,
+                            baseline_window_scale=self.silicon_baseline_window_scale,
+                        )
+                        output.append({
+                            "detector": "silicon",
+                            "side": SI_CODE_TO_SIDE[side_code],
+                            "index": int(raw_row[1]),
+                            "raw": record.raw.tolist(),
+                            "fit": None,
+                        })
+
+            if selected_gagg:
+                gagg_reader = readers.enter_context(closing(open_storage_trace_reader(
+                    run=run, path=path, detector=DETECTOR_GAGG
+                )))
+                try:
+                    gagg_rows = reader_event_rows(
+                        gagg_reader, event_id, detector=DETECTOR_GAGG
+                    )
+                except LookupError:
+                    gagg_rows = []
+                for index in sorted(selected_gagg):
                     if index < 0 or index >= len(gagg_rows):
                         continue
-                    record = trace_record_from_gagg_row(run=run, event_id=event_id, trace_id=index, row=gagg_rows[index], baseline_window_scale=self.gagg_baseline_window_scale)
+                    record = trace_record_from_gagg_row(
+                        run=run,
+                        event_id=event_id,
+                        trace_id=index,
+                        row=gagg_rows[index],
+                        baseline_window_scale=self.gagg_baseline_window_scale,
+                    )
                     fit = self.gagg_fit_cache.get_or_compute(record).recovery
-                    output.append({"detector": "gagg", "side": "", "index": index, "raw": record.raw.tolist(), "fit": {"status": fit.status, "fitted": fit.fitted.tolist() if fit.fitted is not None else None, "reason": fit.reason}})
-            except LookupError:
-                pass
-        finally:
-            si_reader.close()
-            gagg_reader.close()
+                    output.append({
+                        "detector": "gagg",
+                        "side": "",
+                        "index": index,
+                        "raw": record.raw.tolist(),
+                        "fit": {
+                            "status": fit.status,
+                            "fitted": fit.fitted.tolist() if fit.fitted is not None else None,
+                            "reason": fit.reason,
+                        },
+                    })
         return output

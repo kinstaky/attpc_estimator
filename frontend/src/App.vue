@@ -37,7 +37,6 @@ import { useAppearanceStore } from "./stores/appearance";
 import { useShellStore } from "./stores/shell";
 import {
   hydrateUiState,
-  normalizeCurrentRoute,
   startUiStatePersistence,
 } from "./stores/ui_state";
 
@@ -47,7 +46,6 @@ const { applyToDocument, plotAppearanceKey, vuetifyThemeVars } = useAppearanceSt
 onMounted(() => {
   void (async () => {
     await init();
-    await normalizeCurrentRoute();
     if (state.bootstrap?.uiState) {
       await hydrateUiState(state.bootstrap.uiState);
     }

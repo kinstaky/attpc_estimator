@@ -12,12 +12,28 @@ from attpc_estimator.utils.gagg_processing import (
 )
 
 
+def _write_config(path: Path, body: str) -> None:
+    path.write_text(body.strip() + """
+
+[gagg]
+fit_parameters_path = "fit.toml"
+
+[gagg.indexes]
+min = 0
+max = 40
+
+[run_tags]
+path = "runs.xlsx"
+""")
+
+
 def test_parse_args_reads_gagg_config_and_command_line_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "config.toml"
-    config_path.write_text(
+    _write_config(
+        config_path,
         """
 trace_path = "traces"
 workspace = "workspace"
@@ -36,7 +52,7 @@ rel_height = 0.7
 [gagg.time]
 min = 15
 max = 16
-""".strip(),
+""",
     )
     monkeypatch.setattr(
         sys,
@@ -74,6 +90,10 @@ def test_main_forwards_gagg_arguments_to_process_run(
 ) -> None:
     workspace = tmp_path / "workspace"
     captured: dict[str, object] = {}
+    config_path = tmp_path / "config.toml"
+    _write_config(config_path, "")
+    calibration = object()
+    monkeypatch.setattr(gagg, "load_gagg_fit_parameters", lambda _path: calibration)
 
     def process_run(**kwargs: object) -> int:
         captured.update(kwargs)
@@ -83,7 +103,7 @@ def test_main_forwards_gagg_arguments_to_process_run(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["gagg", "--trace-path", "traces", "--workspace", str(workspace), "--run", "42"],
+        ["gagg", "--config", str(config_path), "--trace-path", "traces", "--workspace", str(workspace), "--run", "42"],
     )
 
     gagg.main()
@@ -107,9 +127,11 @@ def test_main_forwards_gagg_arguments_to_process_run(
             )
             for index in range(41)
         },
-        "reporter": captured["reporter"],
+        "gagg_valid_indexes": tuple(range(41)),
+        "gagg_fit_parameters": calibration,
+        "run_tags_path": config_path.parent / "runs.xlsx",
+        "reporter": None,
     }
-    assert captured["reporter"].description == "Processing GaGG"
     output = capsys.readouterr().out
     assert "Starting GAGG run 42." in output
     assert "Finished GAGG run 42: success." in output
@@ -120,7 +142,8 @@ def test_main_builds_per_index_rules_and_applies_scalar_overrides(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "config.toml"
-    config_path.write_text(
+    _write_config(
+        config_path,
         """
 trace_path = "traces"
 workspace = "workspace"
@@ -134,9 +157,10 @@ fft_window_scale = 12.0
 index = [0, 25]
 min = 15
 max = 16
-""".strip(),
+""",
     )
     captured: dict[str, object] = {}
+    monkeypatch.setattr(gagg, "load_gagg_fit_parameters", lambda _path: object())
     monkeypatch.setattr(gagg, "process_run", lambda **kwargs: captured.update(kwargs) or 0)
     monkeypatch.setattr(
         sys,
@@ -159,8 +183,10 @@ max = 16
     }
 
 
-def test_main_requires_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["gagg", "--trace-path", "traces", "--workspace", "workspace"])
+def test_main_requires_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    _write_config(config_path, "")
+    monkeypatch.setattr(sys, "argv", ["gagg", "--config", str(config_path), "--trace-path", "traces", "--workspace", "workspace"])
 
     with pytest.raises(SystemExit) as error:
         gagg.main()

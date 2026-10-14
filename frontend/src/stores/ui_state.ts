@@ -20,10 +20,6 @@ function shouldRestoreRoute(): boolean {
   return router.currentRoute.value.fullPath === "/";
 }
 
-export async function normalizeCurrentRoute(): Promise<void> {
-  return;
-}
-
 export async function hydrateUiState(payload: UiStatePayload | null | undefined): Promise<void> {
   const shell = useShellStore();
   const label = useLabelStore();

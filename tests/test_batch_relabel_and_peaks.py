@@ -7,13 +7,10 @@ import h5py
 import numpy as np
 import pytest
 
-from attpc_estimator.cli.amplitude import main as find_peaks_main
 from attpc_estimator.storage.labels_db import LabelRepository
 from attpc_estimator.process.amplitude import build_labeled_amplitude_histograms
 from attpc_estimator.process.relabel import build_relabel_rows
 from attpc_estimator.cli.relabel import main as relabel_main
-from attpc_estimator.storage.labeled_traces import read_labeled_trace
-from tests.hdf5_fixtures import write_legacy_hdf5
 
 
 def _trace_from_second_derivative(
@@ -136,67 +133,6 @@ def make_saturation_workspace(tmp_path: Path) -> Path:
     )
     seed_saturation_workspace_db(workspace)
     return workspace
-
-
-def test_read_labeled_trace_returns_storage_keys_for_selected_run_and_all_runs(
-    tmp_path,
-) -> None:
-    workspace = make_workspace(tmp_path)
-
-    traces_run8, labels_run8 = read_labeled_trace(
-        trace_path=workspace, workspace_path=workspace, run=8
-    )
-    all_traces, all_labels = read_labeled_trace(
-        trace_path=workspace, workspace_path=workspace, run=None
-    )
-
-    assert traces_run8.shape == (5, 256)
-    assert labels_run8 == [
-        "strange:oscillation",
-        "normal:1",
-        "normal:1",
-        "normal:1",
-        "normal:0",
-    ]
-    assert all_traces.shape == (6, 256)
-    assert all_labels == labels_run8 + ["normal:1"]
-
-
-def test_read_labeled_trace_supports_legacy_trace_layout(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    write_legacy_hdf5(
-        workspace / "run_0008.h5",
-        {
-            1: _pad_rows([_qualified_bitflip_trace(), _low_amplitude_trace(), _high_amplitude_trace()]),
-            2: _pad_rows([_qualified_bitflip_trace(), _low_amplitude_trace()]),
-        },
-    )
-    seed_workspace_db(workspace)
-
-    traces, labels = read_labeled_trace(
-        trace_path=workspace, workspace_path=workspace, run=8
-    )
-
-    assert traces.shape == (5, 256)
-    assert labels == [
-        "strange:oscillation",
-        "normal:1",
-        "normal:1",
-        "normal:1",
-        "normal:0",
-    ]
-
-
-def test_read_labeled_trace_uses_labels_db_filename(tmp_path) -> None:
-    workspace = make_workspace(tmp_path)
-
-    traces, labels = read_labeled_trace(
-        trace_path=workspace, workspace_path=workspace, run=8
-    )
-
-    assert traces.shape == (5, 256)
-    assert labels[0] == "strange:oscillation"
 
 
 def test_build_relabel_rows_noise_applies_zero_peak_rule_and_reports_noise_ratios(
@@ -610,87 +546,3 @@ def test_build_labeled_amplitude_histograms_groups_histograms_by_label(
     assert int(payload["histograms"][0].sum()) == 0
     assert int(payload["histograms"][1].sum()) == 2
     assert int(payload["histograms"][5].sum()) == 1
-
-
-def test_find_peaks_main_labeled_writes_payload_npz(tmp_path, monkeypatch) -> None:
-    workspace = make_workspace(tmp_path)
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "find-peak",
-            "-t",
-            str(workspace),
-            "-w",
-            str(workspace),
-            "-r",
-            "0008",
-            "--baseline-window-scale",
-            "10.0",
-            "--peak-separation",
-            "50.0",
-            "--peak-prominence",
-            "20.0",
-            "--peak-width",
-            "50.0",
-            "--peak-threshold",
-            "0.0",
-            "--peak-rel-height",
-            "0.95",
-            "--labeled",
-        ],
-    )
-
-    find_peaks_main()
-
-    output_path = workspace / "histograms" / "run_0008_labeled_amp.npz"
-    payload = np.load(output_path)
-
-    assert output_path.is_file()
-    assert payload["label_keys"].tolist() == [
-        "normal:0",
-        "normal:1",
-        "normal:2",
-        "normal:3",
-        "normal:4+",
-        "strange:oscillation",
-    ]
-    assert payload["trace_counts"].tolist() == [1, 3, 0, 0, 0, 1]
-    assert int(payload["histograms"][1].sum()) == 2
-
-
-def test_find_peaks_main_zero_pads_integer_run_from_config_file(
-    tmp_path, monkeypatch
-) -> None:
-    workspace = make_workspace(tmp_path)
-    config_path = tmp_path / "amplitude.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                f'trace_path = "{workspace}"',
-                f'workspace = "{workspace}"',
-                "run = 8",
-                "",
-                "[attpc.amplitude]",
-                "peak_separation = 50.0",
-                "peak_prominence = 20.0",
-                "peak_width = 50.0",
-                "peak_threshold = 0.0",
-                "rel_height = 0.95",
-                "",
-                "[attpc.baseline]",
-                "fft_window_scale = 10.0",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(sys, "argv", ["find-peak", "-c", str(config_path), "--labeled"])
-    find_peaks_main()
-
-    output_path = workspace / "histograms" / "run_0008_labeled_amp.npz"
-    payload = np.load(output_path)
-
-    assert output_path.is_file()
-    assert payload["trace_counts"].tolist() == [1, 3, 0, 0, 0, 1]

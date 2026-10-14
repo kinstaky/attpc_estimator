@@ -4,8 +4,10 @@ from pathlib import Path
 import threading
 
 import numpy as np
+import pytest
 import uproot
 
+import attpc_estimator.service.chain as chain_module
 from attpc_estimator.service.chain import ChainService
 
 
@@ -87,3 +89,56 @@ def test_chain_available_prefetch_merges_windows_without_duplicates(tmp_path: Pa
     assert len(prefetcher.scheduled) == len(set(prefetcher.scheduled))
     assert (42, 50) in prefetcher.scheduled
     assert {(42, 45), (42, 55), (42, 10), (42, 100)} <= set(prefetcher.scheduled)
+
+
+def test_chain_event_window_skips_negative_ids_and_previous_stops_at_zero(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service._current = (42, 0)
+
+    assert all(event_id >= 0 for _, event_id in service._event_window(42, 0))
+    with pytest.raises(LookupError, match="before event 0"):
+        service.previous()
+    with pytest.raises(ValueError, match="nonnegative"):
+        service.load(run=42, event_id=-1)
+
+
+def test_chain_raw_traces_open_only_selected_detectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _service(tmp_path)
+    service.trace_path = tmp_path
+    service.silicon_baseline_window_scale = 10.0
+    opened: list[str] = []
+
+    class Reader:
+        def __init__(self, detector: str) -> None:
+            self.detector = detector
+
+        def close(self) -> None:
+            opened.append(f"closed:{self.detector}")
+
+    def open_reader(*, run: int, path: str, detector: str) -> Reader:
+        opened.append(detector)
+        return Reader(detector)
+
+    monkeypatch.setattr(chain_module, "resolve_run_file", lambda _path, _run: tmp_path / "run_42.h5")
+    monkeypatch.setattr(chain_module, "open_storage_trace_reader", open_reader)
+    monkeypatch.setattr(chain_module, "reader_event_rows", lambda *_args, **_kwargs: [])
+
+    assert service._raw_traces(42, 0, {"d1": None, "d2": None, "gagg": None}) == []
+    assert opened == []
+
+    assert service._raw_traces(42, 0, {
+        "d1": {"front_strip": [3]}, "d2": None, "gagg": None,
+    }) == []
+    assert opened == ["SI", "closed:SI"]
+
+    def fail_gagg(*, run: int, path: str, detector: str) -> Reader:
+        if detector == "GAGG":
+            raise OSError("reader unavailable")
+        return open_reader(run=run, path=path, detector=detector)
+
+    monkeypatch.setattr(chain_module, "open_storage_trace_reader", fail_gagg)
+    with pytest.raises(OSError, match="reader unavailable"):
+        service._raw_traces(42, 0, {
+            "d1": {"front_strip": [3]}, "d2": None, "gagg": {"index": [0]},
+        })
+    assert opened[-2:] == ["SI", "closed:SI"]

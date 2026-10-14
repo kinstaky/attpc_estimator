@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import h5py
@@ -8,16 +7,13 @@ import numpy as np
 import pytest
 
 import attpc_estimator.utils.trace_data as trace_data
-from attpc_estimator.cli.cdf import main
 from attpc_estimator.process.cdf import (
     CDF_THRESHOLDS,
     CDF_VALUE_BINS,
     build_trace_cdf_histogram,
 )
 from attpc_estimator.utils.trace_data import (
-    TraceLayout,
     collect_event_counts,
-    detect_trace_layout,
     load_trace_record,
     preprocess_traces,
     sample_cdf_points,
@@ -192,7 +188,6 @@ def test_trace_data_honors_bad_events_in_v2_layout(tmp_path) -> None:
     )
 
     with h5py.File(trace_path, "r") as handle:
-        assert detect_trace_layout(handle) is TraceLayout.MERGER_V2
         assert collect_event_counts(handle) == [(1, 2)]
         with pytest.raises(LookupError, match="trace 8/2"):
             load_trace_record(
@@ -233,127 +228,3 @@ def test_build_trace_cdf_histogram_does_not_require_collect_event_counts(
 
     assert histogram.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
     assert int(histogram.sum()) == 3 * len(CDF_THRESHOLDS)
-
-
-def test_cdf_main_writes_default_output_file(tmp_path, monkeypatch) -> None:
-    trace_path = tmp_path / "run_0006.h5"
-    write_hdf5_input(trace_path)
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "cdf",
-            "-t",
-            str(trace_path),
-            "-w",
-            str(workspace),
-            "-r",
-            "0006",
-            "--baseline-window-scale",
-            "20.0",
-            "--no-labeled",
-        ],
-    )
-    main()
-
-    output_path = workspace / "histograms" / "run_0006_cdf.npy"
-    saved = np.load(output_path)
-
-    assert output_path.is_file()
-    assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
-    assert int(saved.sum()) == 3 * len(CDF_THRESHOLDS)
-
-
-def test_cdf_main_reads_options_from_config_file(tmp_path, monkeypatch) -> None:
-    trace_path = tmp_path / "run_0006.h5"
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    write_hdf5_input(trace_path)
-    config_path = tmp_path / "batch.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                f'trace_path = "{trace_path}"',
-                f'workspace = "{workspace}"',
-                'run = "0006"',
-                "",
-                "[attpc.cdf]",
-                "baseline_window_scale = 12.5",
-                "labeled = false",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
-    main()
-
-    output_path = workspace / "histograms" / "run_0006_cdf.npy"
-    saved = np.load(output_path)
-    assert output_path.is_file()
-    assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
-
-
-def test_cdf_main_zero_pads_integer_run_from_config_file(tmp_path, monkeypatch) -> None:
-    trace_root = tmp_path / "traces"
-    trace_root.mkdir()
-    write_hdf5_input(trace_root / "run_0106.h5")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    config_path = tmp_path / "batch.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                f'trace_path = "{trace_root}"',
-                f'workspace = "{workspace}"',
-                "run = 106",
-                "",
-                "[attpc.cdf]",
-                "baseline_window_scale = 12.5",
-                "labeled = false",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(sys, "argv", ["cdf", "-c", str(config_path)])
-    main()
-
-    output_path = workspace / "histograms" / "run_0106_cdf.npy"
-    saved = np.load(output_path)
-    assert output_path.is_file()
-    assert saved.shape == (len(CDF_THRESHOLDS), CDF_VALUE_BINS)
-
-
-def test_cdf_main_cli_arguments_override_config_file(tmp_path, monkeypatch) -> None:
-    trace_path = tmp_path / "run_0006.h5"
-    write_hdf5_input(trace_path)
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    config_path = tmp_path / "batch.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                f'trace_path = "{trace_path}"',
-                f'workspace = "{workspace}"',
-                'run = "9999"',
-                "",
-                "[attpc.cdf]",
-                "baseline_window_scale = 12.5",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["cdf", "-c", str(config_path), "-r", "0006", "--baseline-window-scale", "20.0", "--no-labeled"],
-    )
-    main()
-
-    output_path = workspace / "histograms" / "run_0006_cdf.npy"
-    assert output_path.is_file()

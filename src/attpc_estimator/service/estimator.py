@@ -1700,7 +1700,7 @@ class EstimatorService:
             if isinstance(selected_run, int) and selected_run in pointcloud_run_values:
                 state["pointcloud"]["selectedRun"] = selected_run
             selected_event_id = pointcloud_payload.get("selectedEventId")
-            if isinstance(selected_event_id, int):
+            if type(selected_event_id) is int and selected_event_id >= 0:
                 state["pointcloud"]["selectedEventId"] = selected_event_id
             selected_label = pointcloud_payload.get("selectedLabel")
             if isinstance(selected_label, str):
@@ -1728,10 +1728,10 @@ class EstimatorService:
         chain_payload = payload.get("chain")
         if isinstance(chain_payload, dict):
             selected_run = chain_payload.get("selectedRun")
-            if isinstance(selected_run, int) and selected_run in run_values:
+            if type(selected_run) is int and selected_run in run_values:
                 state["chain"]["selectedRun"] = selected_run
             selected_event_id = chain_payload.get("selectedEventId")
-            if isinstance(selected_event_id, int):
+            if type(selected_event_id) is int and selected_event_id >= 0:
                 state["chain"]["selectedEventId"] = selected_event_id
             stage = chain_payload.get("stage")
             if stage in {"raw", "ingot", "match"}:
@@ -1741,7 +1741,7 @@ class EstimatorService:
                 state["chain"]["showTheoryLines"] = show_theory_lines
             for key in ("selectedD1Index", "selectedD2Index", "selectedGaggIndex"):
                 value = chain_payload.get(key)
-                if value is None or isinstance(value, int) and value >= 0:
+                if value is None or type(value) is int and value >= 0:
                     state["chain"][key] = value
             distance_threshold = chain_payload.get("ingotDistanceThreshold")
             if (
@@ -1758,7 +1758,7 @@ class EstimatorService:
                 "selectedD2BackGuessIndex",
             ):
                 value = chain_payload.get(key)
-                if value is None or isinstance(value, int) and value >= 0:
+                if value is None or type(value) is int and value >= 0:
                     state["chain"][key] = value
 
         if state["shell"]["selectedRun"] is None and runs:

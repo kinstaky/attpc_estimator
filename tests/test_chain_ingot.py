@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 from types import SimpleNamespace
+import math
 
 from attpc_estimator.service.chain import ChainService
 from attpc_estimator.service.estimator import EstimatorService
@@ -134,3 +135,54 @@ def test_chain_ingot_ui_state_persists_valid_threshold_and_selection(tmp_path: P
             "selectedD2FrontGuessIndex", "selectedD2BackGuessIndex",
         )
     ] == [1, 2, 3, 4]
+
+
+def test_gagg_rows_handle_missing_values_consistently() -> None:
+    service = object.__new__(ChainService)
+    event = {"index": [4, 7], "amp": [12.0], "tau": [2.0], "t0": [5.0]}
+
+    rows = service._gagg_match_rows(event)
+
+    assert rows[0]["index"] == 4
+    assert rows[0]["energy"] == 12.0
+    assert math.isfinite(rows[0]["time"])
+    assert rows[1] == {"index": 7, "energy": None, "time": None}
+    assert service._ingot_table({"d1": None, "d2": None, "gagg": event}) == [
+        {"detector": "gagg", "side": "", **row} for row in rows
+    ]
+
+
+def test_chain_ui_state_rejects_invalid_indexes(tmp_path: Path) -> None:
+    service = object.__new__(EstimatorService)
+    service.workspace = tmp_path
+    service.run_files = {42: tmp_path / "run_42.h5"}
+    service.pointcloud = SimpleNamespace(pointcloud_files={})
+
+    state = service._normalize_ui_state({"chain": {
+        "selectedEventId": -1,
+        "selectedD1Index": True,
+        "selectedD2FrontGuessIndex": False,
+    }})["chain"]
+
+    assert state["selectedEventId"] is None
+    assert state["selectedD1Index"] is None
+    assert state["selectedD2FrontGuessIndex"] is None
+
+
+def test_calibrated_energy_omits_nonfinite_values(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service._match_viewer_lock = threading.RLock()
+
+    class Viewer:
+        def meta(self, _entry: int) -> tuple[int, int, int]:
+            return (1, 0, 0)
+
+        def calibrated_energy(self, _entry: int, *_selected: int) -> tuple[float, float, float]:
+            return (float("nan"), 0.0, 0.0)
+
+    service._match_viewer = lambda _run: Viewer()
+    result = service._calibrated_energies(
+        run=42, entry_position=0, tables={"d1": [{}], "d2": [], "gagg": []}
+    )
+
+    assert result == {"d1": [None], "d2": [], "gagg": []}
